@@ -176,3 +176,27 @@ func TestPostJobCountsAcceptedJobs(t *testing.T) {
 		t.Fatalf("jobs_accepted_total{gpkg,small} rose by %v, want 1", got)
 	}
 }
+
+func TestPostJobRejectsNonObjectChaos(t *testing.T) {
+	for _, chaos := range []string{`"crash"`, `null`, `[1]`, `3`} {
+		r, _, _, log := newServer(t)
+		body := `{"input":{"dataset_id":"dc"},"output_format":"gpkg","run_id":"local-x","chaos":` + chaos + `}`
+		if w := do(r, http.MethodPost, "/jobs", body); w.Code != http.StatusBadRequest {
+			t.Errorf("chaos=%s: status %d, want 400", chaos, w.Code)
+		}
+		if len(*log) != 0 {
+			t.Errorf("chaos=%s reached the store or queue: %v", chaos, *log)
+		}
+	}
+}
+
+func TestPostJobPassesChaosObjectToQueue(t *testing.T) {
+	r, _, queue, _ := newServer(t)
+	body := `{"input":{"dataset_id":"dc"},"output_format":"gpkg","run_id":"local-x","chaos":{"crash_at":0.5}}`
+	if w := do(r, http.MethodPost, "/jobs", body); w.Code != http.StatusAccepted {
+		t.Fatalf("status %d; body %s", w.Code, w.Body)
+	}
+	if got := string(queue.sent[0].Chaos); got != `{"crash_at":0.5}` {
+		t.Fatalf("message chaos %s", got)
+	}
+}

@@ -318,6 +318,14 @@ components:
           type: string
           description: Groups every job of one experiment run, for collection by results tooling
           example: local-x
+        chaos:
+          type: object
+          additionalProperties: true
+          description: |
+            Optional per-job fault-injection flags, copied into the queue message, e.g.
+            {"crash_at": 0.5}. Must be a JSON object; anything else is a 400.
+          example:
+            crash_at: 0.5
 
     JobAccepted:
       type: object

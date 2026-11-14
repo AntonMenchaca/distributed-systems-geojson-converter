@@ -96,6 +96,13 @@ func (h *Handlers) create(c *gin.Context) {
 		badRequest(c, "UNKNOWN_FORMAT", "output_format must be shp, gpkg or fgdb")
 		return
 	}
+	if len(req.Chaos) > 0 {
+		var flags map[string]any
+		if err := json.Unmarshal(req.Chaos, &flags); err != nil || flags == nil {
+			badRequest(c, "INVALID_INPUT", "chaos must be a JSON object, e.g. {\"crash_at\":0.5}")
+			return
+		}
+	}
 	if req.RunID == "" {
 		badRequest(c, "INVALID_INPUT", "run_id is required")
 		return
