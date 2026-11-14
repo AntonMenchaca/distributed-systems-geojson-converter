@@ -30,7 +30,6 @@ type config struct {
 	QueueURL     string
 	Bucket       string
 	WorkDir      string
-	TaskID       string
 	S3PathStyle  bool
 	Concurrency  int    // WORKER_CONCURRENCY=fixed-<n>
 	LeaseMode    string // LEASE_MODE
@@ -49,13 +48,11 @@ func loadConfig(getenv func(string) string) (config, error) {
 		}
 		return def
 	}
-	host, _ := os.Hostname()
 	cfg := config{
 		JobsTable:    getenv("JOBS_TABLE"),
 		QueueURL:     getenv("QUEUE_URL_JOBS"),
 		Bucket:       getenv("BUCKET"),
 		WorkDir:      or("WORK_DIR", os.TempDir()),
-		TaskID:       or("TASK_ID", host),
 		S3PathStyle:  getenv("S3_FORCE_PATH_STYLE") == "true",
 		LeaseMode:    or("LEASE_MODE", "fixed-30s"),
 		CommitMode:   or("COMMIT_MODE", "blind"),
@@ -128,6 +125,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	taskID, err := resolveTaskID(os.Getenv)
+	if err != nil {
+		log.Fatal(err)
+	}
 	ctx, stop := runContext(cfg.ShutdownMode)
 	defer stop()
 
@@ -144,13 +145,13 @@ func main() {
 		Objects:  loop.S3Objects{Client: s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = cfg.S3PathStyle }), Bucket: cfg.Bucket},
 		Convert:  gdal.Convert,
 		WorkDir:  cfg.WorkDir,
-		TaskID:   cfg.TaskID,
+		TaskID:   taskID,
 		Profile:  cfg.Profile,
 		Logger:   logger,
 		Now:      time.Now,
 	}
 	logger.Info("starting worker", "concurrency", cfg.Concurrency, "lease_mode", cfg.LeaseMode,
-		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "shutdown_mode", cfg.ShutdownMode, "task_id", cfg.TaskID)
+		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "shutdown_mode", cfg.ShutdownMode, "task_id", taskID)
 	loop.New(loop.Config{
 		SQS: sqsClient, QueueURL: cfg.QueueURL, Concurrency: cfg.Concurrency, WaitSeconds: 20,
 		VisibilityTimeoutS: cfg.VisibilityTimeoutS, Handle: proc.Handle, Logger: logger,
