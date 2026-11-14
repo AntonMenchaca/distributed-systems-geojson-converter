@@ -42,21 +42,17 @@ type QueueMessage struct {
 // Processor runs one job: claim, download, convert, upload, commit, delete. In the
 // baseline (COMMIT_MODE=blind) outputs go straight to their final keys, one object per file.
 type Processor struct {
-	Store     jobstore.Store
-	SQS       SQSAPI
-	QueueURL  string
-	Objects   Objects
-	Convert   ConvertFunc
-	WorkDir   string
-	TaskID    string
-	Profile   string // GDAL_PROFILE
-	LeaseMode string // LEASE_MODE
-	Logger    *slog.Logger
-	Now       func() time.Time
+	Store    jobstore.Store
+	SQS      SQSAPI
+	QueueURL string
+	Objects  Objects
+	Convert  ConvertFunc
+	WorkDir  string
+	TaskID   string
+	Profile  string // GDAL_PROFILE
+	Logger   *slog.Logger
+	Now      func() time.Time
 }
-
-// maxVisibilityS is SQS's 12-hour visibility ceiling, used by LEASE_MODE=fixed-12h.
-const maxVisibilityS = 12 * 60 * 60
 
 func (p *Processor) log() *slog.Logger {
 	if p.Logger == nil {
@@ -75,14 +71,6 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 		return
 	}
 	logger := p.log().With("job_id", qm.JobID, "run_id", qm.RunID, "format", qm.OutputFormat)
-
-	if p.LeaseMode == "fixed-12h" {
-		if _, err := p.SQS.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
-			QueueUrl: aws.String(p.QueueURL), ReceiptHandle: aws.String(m.ReceiptHandle), VisibilityTimeout: maxVisibilityS,
-		}); err != nil {
-			logger.Error("extend visibility failed", "error", err.Error())
-		}
-	}
 
 	epoch, err := p.Store.Claim(ctx, qm.JobID, p.TaskID, p.Now())
 	if errors.Is(err, jobstore.ErrAlreadyDone) {

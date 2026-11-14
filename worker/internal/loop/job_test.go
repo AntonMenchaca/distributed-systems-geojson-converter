@@ -87,18 +87,18 @@ func fakeConvert(tr *trace, err error) ConvertFunc {
 const body = `{"job_id":"j1","run_id":"local-x","input_key":"datasets/dc.geojson","input_bytes":10,` +
 	`"output_format":"gpkg","size_class":"small","est_work_s":1.1,"est_mem_mb":154,"submitted_at":"2026-11-14T18:30:00.000Z"}`
 
-func newProcessor(t *testing.T, tr *trace, store *fakeStore, convErr error, lease string) *Processor {
+func newProcessor(t *testing.T, tr *trace, store *fakeStore, convErr error) *Processor {
 	return &Processor{
 		Store: store, SQS: recSQS{tr: tr}, QueueURL: "q", Objects: fakeObjects{tr: tr},
 		Convert: fakeConvert(tr, convErr), WorkDir: t.TempDir(), TaskID: "task-1",
-		Profile: "defaults", LeaseMode: lease, Now: time.Now,
+		Profile: "defaults", Now: time.Now,
 	}
 }
 
 func TestProcessCommitsThenDeletes(t *testing.T) {
 	tr := &trace{}
 	store := &fakeStore{tr: tr}
-	newProcessor(t, tr, store, nil, "fixed-30s").Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	newProcessor(t, tr, store, nil).Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
 	want := "claim:j1:task-1,download:datasets/dc.geojson,convert:gpkg:defaults,upload:outputs/j1/out.gpkg,commit:j1,delete:rh"
 	if got := strings.Join(tr.events, ","); got != want {
 		t.Fatalf("events\n got %s\nwant %s", got, want)
@@ -111,7 +111,7 @@ func TestProcessCommitsThenDeletes(t *testing.T) {
 
 func TestProcessConvertFailureLeavesMessage(t *testing.T) {
 	tr := &trace{}
-	newProcessor(t, tr, &fakeStore{tr: tr}, errors.New("boom"), "fixed-30s").Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	newProcessor(t, tr, &fakeStore{tr: tr}, errors.New("boom")).Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
 	got := strings.Join(tr.events, ",")
 	if !strings.Contains(got, "fail:j1:CONVERT_FAILED") || strings.Contains(got, "delete:") || strings.Contains(got, "commit:") {
 		t.Fatalf("events %s: want a non-permanent Fail, no commit and no delete (SQS redelivers)", got)
@@ -120,16 +120,8 @@ func TestProcessConvertFailureLeavesMessage(t *testing.T) {
 
 func TestProcessAlreadyDoneDeletesWithoutConverting(t *testing.T) {
 	tr := &trace{}
-	newProcessor(t, tr, &fakeStore{tr: tr, claimErr: jobstore.ErrAlreadyDone}, nil, "fixed-30s").Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	newProcessor(t, tr, &fakeStore{tr: tr, claimErr: jobstore.ErrAlreadyDone}, nil).Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
 	if got := strings.Join(tr.events, ","); got != "claim:j1:task-1,delete:rh" {
 		t.Fatalf("events %s, want claim then delete", got)
-	}
-}
-
-func TestFixed12hLeaseExtendsVisibilityFirst(t *testing.T) {
-	tr := &trace{}
-	newProcessor(t, tr, &fakeStore{tr: tr}, nil, "fixed-12h").Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
-	if tr.events[0] != "visibility:43200" {
-		t.Fatalf("first event %s, want visibility:43200", tr.events[0])
 	}
 }

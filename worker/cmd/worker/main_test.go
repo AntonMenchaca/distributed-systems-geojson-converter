@@ -46,3 +46,12 @@ func TestLoadConfigRejectsUnknownOrUnbuiltKnobs(t *testing.T) {
 		t.Error("mem-budget accepted though not implemented")
 	}
 }
+
+func TestLeaseModeSetsReceiveVisibility(t *testing.T) {
+	for mode, want := range map[string]int32{"fixed-30s": 0, "fixed-12h": 43200} {
+		cfg, err := loadConfig(env(with("LEASE_MODE", mode)))
+		if err != nil || cfg.VisibilityTimeoutS != want {
+			t.Errorf("LEASE_MODE=%s: VisibilityTimeoutS %d, err %v; want %d", mode, cfg.VisibilityTimeoutS, err, want)
+		}
+	}
+}

@@ -36,6 +36,9 @@ type config struct {
 	LeaseMode   string // LEASE_MODE
 	CommitMode  string // COMMIT_MODE
 	Profile     string // GDAL_PROFILE
+	// VisibilityTimeoutS is set on each ReceiveMessage: 0 keeps the queue's 30 s default
+	// (fixed-30s); fixed-12h asks for SQS's 12 h maximum, allowed only at receive time.
+	VisibilityTimeoutS int32
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -78,7 +81,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 
 	switch cfg.LeaseMode {
-	case "fixed-30s", "fixed-12h":
+	case "fixed-30s":
+	case "fixed-12h":
+		cfg.VisibilityTimeoutS = 12 * 60 * 60
 	case "heartbeat":
 		return config{}, fmt.Errorf("LEASE_MODE=heartbeat: not implemented yet")
 	default:
@@ -115,22 +120,21 @@ func main() {
 	}
 	sqsClient := sqs.NewFromConfig(awsCfg)
 	proc := &loop.Processor{
-		Store:     jobstore.NewDynamoStore(dynamodb.NewFromConfig(awsCfg), cfg.JobsTable, jobstore.CommitMode(cfg.CommitMode)),
-		SQS:       sqsClient,
-		QueueURL:  cfg.QueueURL,
-		Objects:   loop.S3Objects{Client: s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = cfg.S3PathStyle }), Bucket: cfg.Bucket},
-		Convert:   gdal.Convert,
-		WorkDir:   cfg.WorkDir,
-		TaskID:    cfg.TaskID,
-		Profile:   cfg.Profile,
-		LeaseMode: cfg.LeaseMode,
-		Logger:    logger,
-		Now:       time.Now,
+		Store:    jobstore.NewDynamoStore(dynamodb.NewFromConfig(awsCfg), cfg.JobsTable, jobstore.CommitMode(cfg.CommitMode)),
+		SQS:      sqsClient,
+		QueueURL: cfg.QueueURL,
+		Objects:  loop.S3Objects{Client: s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = cfg.S3PathStyle }), Bucket: cfg.Bucket},
+		Convert:  gdal.Convert,
+		WorkDir:  cfg.WorkDir,
+		TaskID:   cfg.TaskID,
+		Profile:  cfg.Profile,
+		Logger:   logger,
+		Now:      time.Now,
 	}
 	logger.Info("starting worker", "concurrency", cfg.Concurrency, "lease_mode", cfg.LeaseMode,
 		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "task_id", cfg.TaskID)
 	loop.New(loop.Config{
 		SQS: sqsClient, QueueURL: cfg.QueueURL, Concurrency: cfg.Concurrency, WaitSeconds: 20,
-		Handle: proc.Handle, Logger: logger,
+		VisibilityTimeoutS: cfg.VisibilityTimeoutS, Handle: proc.Handle, Logger: logger,
 	}).Run(ctx)
 }

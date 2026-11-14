@@ -30,8 +30,12 @@ type Config struct {
 	QueueURL    string
 	Concurrency int   // WORKER_CONCURRENCY=fixed-<n>
 	WaitSeconds int32 // long-poll wait; 20 is SQS's maximum
-	Handle      func(context.Context, Message)
-	Logger      *slog.Logger
+	// VisibilityTimeoutS overrides the queue's visibility for received messages; 0 keeps the
+	// queue default (30 s, LEASE_MODE=fixed-30s). LEASE_MODE=fixed-12h sets 43200 here: SQS
+	// allows 12 h only at receive time and rejects extending a message past 12 h from receipt.
+	VisibilityTimeoutS int32
+	Handle             func(context.Context, Message)
+	Logger             *slog.Logger
 }
 
 type Loop struct {
@@ -79,6 +83,7 @@ func (l *Loop) receiveOnce(ctx context.Context) error {
 		QueueUrl:            aws.String(l.cfg.QueueURL),
 		MaxNumberOfMessages: int32(min(free, sqsMaxBatch)),
 		WaitTimeSeconds:     l.cfg.WaitSeconds,
+		VisibilityTimeout:   l.cfg.VisibilityTimeoutS,
 	})
 	if err != nil {
 		return err

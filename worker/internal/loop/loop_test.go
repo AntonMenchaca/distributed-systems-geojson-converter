@@ -9,11 +9,13 @@ import (
 
 type fakeSQS struct {
 	SQSAPI
-	maxAsked []int32
+	maxAsked   []int32
+	visibility []int32
 }
 
 func (f *fakeSQS) ReceiveMessage(_ context.Context, in *sqs.ReceiveMessageInput, _ ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error) {
 	f.maxAsked = append(f.maxAsked, in.MaxNumberOfMessages)
+	f.visibility = append(f.visibility, in.VisibilityTimeout)
 	return &sqs.ReceiveMessageOutput{}, nil
 }
 
@@ -41,5 +43,18 @@ func TestLoopCapsReceiveAtTen(t *testing.T) {
 	}
 	if fake.maxAsked[0] != 10 {
 		t.Fatalf("asked for %d, want SQS's maximum of 10", fake.maxAsked[0])
+	}
+}
+
+// SQS caps visibility at 12 h from receipt and rejects ChangeMessageVisibility past it, so
+// LEASE_MODE=fixed-12h must set the timeout on the receive call itself.
+func TestFixed12hSetsVisibilityAtReceive(t *testing.T) {
+	fake := &fakeSQS{}
+	l := New(Config{SQS: fake, QueueURL: "q", Concurrency: 1, VisibilityTimeoutS: 43200, Handle: func(context.Context, Message) {}})
+	if err := l.receiveOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if fake.visibility[0] != 43200 {
+		t.Fatalf("ReceiveMessage VisibilityTimeout = %d, want 43200", fake.visibility[0])
 	}
 }
