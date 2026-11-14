@@ -15,6 +15,7 @@ import (
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/api/internal/router"
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/jobstore"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -162,5 +163,16 @@ func TestGetJobReturns404ForUnknown(t *testing.T) {
 	r, _, _, _ := newServer(t)
 	if w := do(r, http.MethodGet, "/jobs/nope", ""); w.Code != http.StatusNotFound {
 		t.Fatalf("status %d, want 404; body %s", w.Code, w.Body)
+	}
+}
+
+func TestPostJobCountsAcceptedJobs(t *testing.T) {
+	r, _, _, _ := newServer(t)
+	before := testutil.ToFloat64(jobsAccepted.WithLabelValues("gpkg", "small"))
+	if w := do(r, http.MethodPost, "/jobs", dcGPKG); w.Code != http.StatusAccepted {
+		t.Fatalf("status %d", w.Code)
+	}
+	if got := testutil.ToFloat64(jobsAccepted.WithLabelValues("gpkg", "small")) - before; got != 1 {
+		t.Fatalf("jobs_accepted_total{gpkg,small} rose by %v, want 1", got)
 	}
 }

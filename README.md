@@ -17,7 +17,24 @@ Build against these files. Changing one needs a PR that updates the contract and
 
 ## Getting started
 
-_Not set up yet: the local Docker Compose stack goes here._
+Needs Docker only. On a clean clone:
+
+```sh
+docker compose up --build        # API :8080, Prometheus :9090, Grafana :3000 (no login)
+```
+
+The first start downloads the DC footprints (3 MB zip) into a Docker volume and stages the local catalog (`datasets/local/datasets.csv`) in the emulated S3. LocalStack (S3 and SQS) and DynamoDB Local stand in for AWS.
+
+Submit one job, replay the sample trace, and verify the outputs:
+
+```sh
+curl -XPOST localhost:8080/jobs -H 'Content-Type: application/json' \
+  -d '{"input":{"dataset_id":"dc"},"output_format":"gpkg","run_id":"local-x"}'
+python3 tools/replay.py --trace traces/sample.csv --run-id local-sample-1
+docker compose run --rm tools python tools/verify.py --run-id local-sample-1 --out results/local-sample-1/verify.json
+```
+
+Change a knob through its environment variable, e.g. `LEASE_MODE=fixed-12h docker compose up --build` (see [`knobs.md`](knobs.md)).
 
 ## Project structure
 

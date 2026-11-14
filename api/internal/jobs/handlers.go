@@ -146,6 +146,7 @@ func (h *Handlers) create(c *gin.Context) {
 		h.internal(c, "ENQUEUE_FAILED", err)
 		return
 	}
+	jobsAccepted.WithLabelValues(job.OutputFormat, class).Inc()
 	c.JSON(http.StatusAccepted, gin.H{"job_id": job.JobID, "status": jobstore.StatusQueued, "size_class": class})
 }
 
