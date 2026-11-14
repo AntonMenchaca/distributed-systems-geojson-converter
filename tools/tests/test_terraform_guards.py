@@ -43,3 +43,12 @@ def test_every_knob_has_a_terraform_variable():
     assert len(knob_tf_variables()) >= 18
     assert missing == set()
     assert "prefix" in declared
+
+
+def test_resource_names_use_the_guarded_prefix():
+    # local.prefix depends on the Learner Lab precondition; var.prefix does not, so a name
+    # built from var.prefix would let `terraform apply -target=...` skip the guard.
+    for p in (TF / "main.tf", TF / "images.tf"):
+        lines = [l for l in p.read_text().splitlines()
+                 if "var.prefix" in l and not l.lstrip().startswith("#") and "prefix = \"${var.prefix}" not in l]
+        assert lines == [], f"{p.name}: {lines}"

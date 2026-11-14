@@ -58,3 +58,17 @@ run "unknown_prefix_is_refused" {
   }
   expect_failures = [var.prefix]
 }
+
+# -target plans only a resource and its dependencies, so the guard must be a dependency of
+# every resource, not only of the ECS services.
+run "targeted_plan_by_non_learner_lab_caller_is_refused" {
+  command = plan
+  plan_options {
+    target = [module.s3, docker_registry_image.worker, module.sqs]
+  }
+  override_data {
+    target = data.aws_caller_identity.current
+    values = { account_id = "123456789012", arn = "arn:aws:iam::123456789012:user/someone" }
+  }
+  expect_failures = [data.aws_iam_role.lab_role]
+}

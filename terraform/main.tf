@@ -20,6 +20,11 @@ data "aws_iam_role" "lab_role" {
 }
 
 locals {
+  # Every resource name goes through local.prefix, which reads the guarded LabRole lookup.
+  # That makes the Learner Lab precondition a dependency of every resource, so even
+  # `terraform apply -target=...` checks the caller first. (substr(..., 0, 0) is "".)
+  prefix = "${var.prefix}${substr(data.aws_iam_role.lab_role.name, 0, 0)}"
+
   wiring = {
     AWS_REGION           = var.aws_region
     BUCKET               = module.s3.bucket
@@ -55,14 +60,14 @@ locals {
 
 module "network" {
   source                = "./modules/network"
-  name                  = var.prefix
+  name                  = local.prefix
   container_port        = var.container_port
   alb_security_group_id = module.alb.security_group_id
 }
 
 module "endpoints" {
   source          = "./modules/endpoints"
-  prefix          = var.prefix
+  prefix          = local.prefix
   vpc_id          = module.network.vpc_id
   route_table_ids = [module.network.public_route_table_id]
 }
@@ -70,23 +75,23 @@ module "endpoints" {
 module "s3" {
   source = "./modules/s3"
   # Bucket names are global, so the account ID keeps each person's unique.
-  bucket_name = "${var.prefix}-geojson-${data.aws_caller_identity.current.account_id}"
+  bucket_name = "${local.prefix}-geojson-${data.aws_caller_identity.current.account_id}"
 }
 
 module "sqs" {
   source           = "./modules/sqs"
-  prefix           = var.prefix
+  prefix           = local.prefix
   dlq_max_receives = var.dlq_max_receives
 }
 
 module "dynamodb" {
   source = "./modules/dynamodb"
-  prefix = var.prefix
+  prefix = local.prefix
 }
 
 module "alb" {
   source         = "./modules/alb"
-  service_name   = "${var.prefix}-api"
+  service_name   = "${local.prefix}-api"
   vpc_id         = module.network.vpc_id
   subnet_ids     = module.network.public_subnet_ids
   container_port = var.container_port
@@ -94,18 +99,18 @@ module "alb" {
 
 module "api_logs" {
   source            = "./modules/logging"
-  service_name      = "${var.prefix}-api"
+  service_name      = "${local.prefix}-api"
   retention_in_days = var.log_retention_days
 }
 
 module "worker_logs" {
   source            = "./modules/logging"
-  service_name      = "${var.prefix}-worker"
+  service_name      = "${local.prefix}-worker"
   retention_in_days = var.log_retention_days
 }
 
 resource "aws_ecs_cluster" "this" {
-  name = "${var.prefix}-cluster"
+  name = "${local.prefix}-cluster"
 
   # Container Insights publishes task counts and, with "enhanced", CPU and memory per task:
   # the source of resources.csv.
@@ -117,7 +122,7 @@ resource "aws_ecs_cluster" "this" {
 
 module "api" {
   source             = "./modules/ecs"
-  service_name       = "${var.prefix}-api"
+  service_name       = "${local.prefix}-api"
   cluster_id         = aws_ecs_cluster.this.id
   image              = "${module.api_ecr.repository_url}@${docker_registry_image.api.sha256_digest}"
   container_port     = var.container_port
@@ -145,7 +150,7 @@ module "api" {
 
 module "worker" {
   source               = "./modules/worker_service"
-  name                 = "${var.prefix}-worker"
+  name                 = "${local.prefix}-worker"
   cluster_id           = aws_ecs_cluster.this.id
   image                = "${module.worker_ecr.repository_url}@${docker_registry_image.worker.sha256_digest}"
   subnet_ids           = module.network.public_subnet_ids

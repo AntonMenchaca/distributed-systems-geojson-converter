@@ -4,12 +4,12 @@
 
 module "api_ecr" {
   source          = "./modules/ecr"
-  repository_name = "${var.prefix}-api"
+  repository_name = "${local.prefix}-api"
 }
 
 module "worker_ecr" {
   source          = "./modules/ecr"
-  repository_name = "${var.prefix}-worker"
+  repository_name = "${local.prefix}-worker"
 }
 
 locals {
