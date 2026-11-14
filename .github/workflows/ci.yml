@@ -1,0 +1,85 @@
+name: ci
+
+# Every check a PR must pass. A PR merges only when all jobs pass.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    services:
+      # jobstore tests run against DynamoDB Local, the same container Compose uses.
+      dynamodb:
+        image: amazon/dynamodb-local:2.5.2
+        ports:
+          - 8000:8000
+    env:
+      DYNAMODB_ENDPOINT: http://localhost:8000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: build, vet and test every Go module
+        run: |
+          set -euo pipefail
+          mods=$(find . -name go.mod -not -path './.git/*' -exec dirname {} \; | sort)
+          if [ -z "$mods" ]; then echo "no Go modules yet"; exit 0; fi
+          for m in $mods; do
+            echo "::group::$m"
+            (cd "$m" && go build ./... && go vet ./... && go test ./...)
+            echo "::endgroup::"
+          done
+
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r tools/requirements-dev.txt
+      - run: python -m pytest tools/tests
+
+  api-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npx --yes @redocly/cli@1.34.3 lint api.yaml
+
+  terraform:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.14.4'
+      - name: fmt and validate
+        run: |
+          set -euo pipefail
+          if [ ! -d terraform ]; then echo "no terraform/ yet"; exit 0; fi
+          terraform fmt -check -recursive terraform
+          cd terraform && terraform init -backend=false -input=false && terraform validate
+
+  shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n on every script
+        run: |
+          set -euo pipefail
+          files=$(git ls-files '*.sh')
+          for f in $files; do bash -n "$f"; done
+          echo "checked: ${files:-none}"

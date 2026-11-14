@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AntonMenchaca/distributed-systems-geojson-converter/schemas/job-record.json",
+  "title": "JobRecord",
+  "description": "One item per job in the DynamoDB jobs table (key job_id, GSI on run_id). Written only through the jobstore package. Timestamps are RFC 3339 UTC with milliseconds; they are the source of every latency number.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["job_id", "run_id", "output_format", "size_class", "input_key", "input_bytes", "status", "epoch", "submitted_at"],
+  "properties": {
+    "job_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "output_format": { "enum": ["shp", "gpkg", "fgdb"] },
+    "size_class": { "enum": ["small", "large"] },
+    "queue": { "type": "string", "description": "Queue the message went to (jobs, jobs-small, jobs-large). Set by MarkQueued; absent on REJECTED jobs." },
+    "input_key": { "type": "string" },
+    "input_bytes": { "type": "integer", "minimum": 0 },
+
+    "status": { "enum": ["SUBMITTED", "QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "DEAD_LETTERED", "REJECTED"] },
+    "epoch": { "type": "integer", "minimum": 0, "description": "Fencing token: 0 at Create, +1 per Claim." },
+
+    "submitted_at": { "$ref": "#/$defs/ts" },
+    "enqueued_at": { "$ref": "#/$defs/ts" },
+    "first_started_at": { "$ref": "#/$defs/ts" },
+    "started_at": { "$ref": "#/$defs/ts", "description": "Start of the latest attempt." },
+    "heartbeat_at": { "$ref": "#/$defs/ts", "description": "Last lease renewal (LEASE_MODE=heartbeat)." },
+    "committed_at": { "$ref": "#/$defs/ts" },
+    "download_ms": { "type": "integer", "minimum": 0 },
+    "convert_ms": { "type": "integer", "minimum": 0 },
+    "package_ms": { "type": "integer", "minimum": 0 },
+    "upload_ms": { "type": "integer", "minimum": 0 },
+
+    "output_key": { "type": "string" },
+    "output_bytes": { "type": "integer", "minimum": 0 },
+    "output_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "feature_count": { "type": "integer", "minimum": 0 },
+    "error_code": { "type": "string" },
+
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["epoch", "task_id", "started_at"],
+        "properties": {
+          "epoch": { "type": "integer", "minimum": 1 },
+          "task_id": { "type": "string" },
+          "started_at": { "$ref": "#/$defs/ts" },
+          "ended_at": { "$ref": "#/$defs/ts" },
+          "outcome": { "enum": ["SUCCEEDED", "FAILED", "STALE", "LOST", "ERROR"] },
+          "error_code": { "type": "string" },
+          "peak_rss_mb": { "type": "number", "minimum": 0 },
+          "cpu_s": { "type": "number", "minimum": 0 },
+          "peak_disk_mb": { "type": "number", "minimum": 0 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "ts": { "type": "string", "format": "date-time" }
+  }
+}

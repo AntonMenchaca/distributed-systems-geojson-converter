@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AntonMenchaca/distributed-systems-geojson-converter/schemas/queue-message.json",
+  "title": "QueueMessage",
+  "description": "SQS message body the API enqueues and the worker consumes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["job_id", "run_id", "input_key", "input_bytes", "output_format", "size_class", "est_work_s", "est_mem_mb", "submitted_at"],
+  "properties": {
+    "job_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "input_key": { "type": "string", "description": "S3 key of the input GeoJSON (datasets/... or uploads/...)." },
+    "input_bytes": { "type": "integer", "minimum": 0 },
+    "output_format": { "$ref": "#/$defs/output_format" },
+    "size_class": { "$ref": "#/$defs/size_class" },
+    "est_work_s": { "type": "number", "minimum": 0, "description": "Predicted conversion seconds from config/estimates.json." },
+    "est_mem_mb": { "type": "number", "minimum": 0, "description": "Predicted peak memory from config/estimates.json." },
+    "submitted_at": { "type": "string", "format": "date-time" },
+    "chaos": {
+      "type": "object",
+      "description": "Optional per-job fault-injection flags, e.g. {\"crash_at\": 0.5}. Absent on normal jobs."
+    }
+  },
+  "$defs": {
+    "output_format": { "enum": ["shp", "gpkg", "fgdb"] },
+    "size_class": { "enum": ["small", "large"] }
+  }
+}
