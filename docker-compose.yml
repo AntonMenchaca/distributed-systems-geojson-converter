@@ -43,8 +43,9 @@ services:
     ports:
       - "127.0.0.1:4566:4566"
     healthcheck:
-      # Healthy only once init.sh has finished: bucket, queues, table and datasets exist.
-      test: ["CMD-SHELL", "curl -sf localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
+      # Healthy only once init.sh has finished AND succeeded: LocalStack marks the stage
+      # "completed" even when a script fails, so every script's state must be SUCCESSFUL.
+      test: ["CMD", "python3", "-c", "import json,sys,urllib.request as u; r=json.load(u.urlopen('http://localhost:4566/_localstack/init/ready')); sys.exit(0 if r['completed'] and r['scripts'] and all(s['state'] == 'SUCCESSFUL' for s in r['scripts']) else 1)"]
       interval: 3s
       timeout: 5s
       retries: 100
