@@ -35,3 +35,17 @@ def test_only_succeeded_jobs_are_opened_and_statuses_are_counted():
                            count_features=lambda j: opened.append(j["job_id"]) or 1000)
     assert opened == ["j1"]
     assert report["status_counts"] == {"SUCCEEDED": 1, "FAILED": 1}
+
+
+def test_unfinished_run_does_not_pass():
+    # A run with jobs still QUEUED/RUNNING must not look fine in the summary.
+    report = verify.verify([job(), job(job_id="j2", status="RUNNING")], CATALOG, count_features=lambda j: 1000)
+    assert report["passed"] is False
+    assert report["complete"] is False
+    assert report["unfinished"] == ["j2"]
+
+
+def test_nothing_checked_does_not_pass():
+    report = verify.verify([job(status="FAILED")], CATALOG, count_features=lambda j: 1000)
+    assert report["checked"] == 0
+    assert report["passed"] is False

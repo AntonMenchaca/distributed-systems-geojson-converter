@@ -1,7 +1,8 @@
 """Verify a run's outputs (v0).
 
 For each SUCCEEDED job: the output opens in GDAL and has the input dataset's feature count.
-Writes verify.json and exits non-zero if any check fails.
+Writes verify.json and exits non-zero if any check fails, any job is not yet terminal, or no
+output was checked.
 
     python tools/verify.py --run-id local-x --out results/local-x/verify.json
 
@@ -22,6 +23,9 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Callable
+
+
+TERMINAL = {"SUCCEEDED", "FAILED", "DEAD_LETTERED", "REJECTED"}
 
 
 class OutputError(Exception):
@@ -46,9 +50,14 @@ def verify(jobs: list[dict], catalog: dict[str, dict], count_features: Callable[
             failures.append({"job_id": j["job_id"], "check": "known_input", "input_key": j["input_key"]})
         elif actual != expected:
             failures.append({"job_id": j["job_id"], "check": "feature_count", "expected": expected, "actual": actual})
+    # A run passes only if it finished (every job terminal) and at least one output was
+    # checked; otherwise an unfinished run would look fine in the summary.
+    unfinished = [j["job_id"] for j in jobs if j["status"] not in TERMINAL]
     return {
         "version": "v0",
-        "passed": not failures,
+        "passed": not failures and not unfinished and checked > 0,
+        "complete": not unfinished,
+        "unfinished": unfinished,
         "jobs": len(jobs),
         "checked": checked,
         "status_counts": dict(Counter(j["status"] for j in jobs)),
