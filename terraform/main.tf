@@ -168,6 +168,7 @@ module "worker" {
     LEASE_MODE         = var.lease_mode
     COMMIT_MODE        = var.commit_mode
     GDAL_PROFILE       = var.gdal_profile
+    SHUTDOWN_MODE      = var.shutdown_mode
     WORK_DIR           = "/tmp/jobs"
   })
 }

@@ -79,6 +79,8 @@ services:
       LEASE_MODE: ${LEASE_MODE:-fixed-30s}
       COMMIT_MODE: ${COMMIT_MODE:-blind}
       GDAL_PROFILE: ${GDAL_PROFILE:-defaults}
+      # ignore: SIGTERM does nothing, so `docker compose stop` kills the worker mid-job after 10 s
+      SHUTDOWN_MODE: ${SHUTDOWN_MODE:-ignore}
       WORK_DIR: /tmp/jobs
     depends_on:
       localstack:

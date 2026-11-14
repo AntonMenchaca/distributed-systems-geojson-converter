@@ -26,16 +26,17 @@ import (
 // config is everything the worker reads from the environment. Knobs are validated here, so
 // an unknown or not-yet-built value is a startup error, never a silent default (knobs.md).
 type config struct {
-	JobsTable   string
-	QueueURL    string
-	Bucket      string
-	WorkDir     string
-	TaskID      string
-	S3PathStyle bool
-	Concurrency int    // WORKER_CONCURRENCY=fixed-<n>
-	LeaseMode   string // LEASE_MODE
-	CommitMode  string // COMMIT_MODE
-	Profile     string // GDAL_PROFILE
+	JobsTable    string
+	QueueURL     string
+	Bucket       string
+	WorkDir      string
+	TaskID       string
+	S3PathStyle  bool
+	Concurrency  int    // WORKER_CONCURRENCY=fixed-<n>
+	LeaseMode    string // LEASE_MODE
+	CommitMode   string // COMMIT_MODE
+	Profile      string // GDAL_PROFILE
+	ShutdownMode string // SHUTDOWN_MODE
 	// VisibilityTimeoutS is set on each ReceiveMessage: 0 keeps the queue's 30 s default
 	// (fixed-30s); fixed-12h asks for SQS's 12 h maximum, allowed only at receive time.
 	VisibilityTimeoutS int32
@@ -50,15 +51,16 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	host, _ := os.Hostname()
 	cfg := config{
-		JobsTable:   getenv("JOBS_TABLE"),
-		QueueURL:    getenv("QUEUE_URL_JOBS"),
-		Bucket:      getenv("BUCKET"),
-		WorkDir:     or("WORK_DIR", os.TempDir()),
-		TaskID:      or("TASK_ID", host),
-		S3PathStyle: getenv("S3_FORCE_PATH_STYLE") == "true",
-		LeaseMode:   or("LEASE_MODE", "fixed-30s"),
-		CommitMode:  or("COMMIT_MODE", "blind"),
-		Profile:     or("GDAL_PROFILE", "defaults"),
+		JobsTable:    getenv("JOBS_TABLE"),
+		QueueURL:     getenv("QUEUE_URL_JOBS"),
+		Bucket:       getenv("BUCKET"),
+		WorkDir:      or("WORK_DIR", os.TempDir()),
+		TaskID:       or("TASK_ID", host),
+		S3PathStyle:  getenv("S3_FORCE_PATH_STYLE") == "true",
+		LeaseMode:    or("LEASE_MODE", "fixed-30s"),
+		CommitMode:   or("COMMIT_MODE", "blind"),
+		Profile:      or("GDAL_PROFILE", "defaults"),
+		ShutdownMode: or("SHUTDOWN_MODE", "ignore"),
 	}
 	for k, v := range map[string]string{"JOBS_TABLE": cfg.JobsTable, "QUEUE_URL_JOBS": cfg.QueueURL, "BUCKET": cfg.Bucket} {
 		if v == "" {
@@ -94,6 +96,13 @@ func loadConfig(getenv func(string) string) (config, error) {
 	default:
 		return config{}, fmt.Errorf("COMMIT_MODE=%q: want blind or fenced", cfg.CommitMode)
 	}
+	switch cfg.ShutdownMode {
+	case "ignore":
+	case "drain":
+		return config{}, fmt.Errorf("SHUTDOWN_MODE=drain: not implemented yet")
+	default:
+		return config{}, fmt.Errorf("SHUTDOWN_MODE=%q: want ignore or drain", cfg.ShutdownMode)
+	}
 	switch cfg.Profile {
 	case "defaults", "gt1":
 	case "tuned":
@@ -104,13 +113,22 @@ func loadConfig(getenv func(string) string) (config, error) {
 	return cfg, nil
 }
 
+// runContext is the worker's lifetime context, shared by the poll loop and every job.
+// SHUTDOWN_MODE=ignore (the baseline): SIGTERM is ignored, so the worker keeps polling and
+// its ogr2ogr children keep running until ECS sends SIGKILL after the stop timeout and the
+// task dies mid-job. Only an interactive Ctrl-C (os.Interrupt) stops it. drain is not implemented yet.
+func runContext(mode string) (context.Context, context.CancelFunc) {
+	signal.Ignore(syscall.SIGTERM)
+	return signal.NotifyContext(context.Background(), os.Interrupt)
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	cfg, err := loadConfig(os.Getenv)
 	if err != nil {
 		log.Fatal(err)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	ctx, stop := runContext(cfg.ShutdownMode)
 	defer stop()
 
 	// Credentials, region and (locally) AWS_ENDPOINT_URL come from the environment.
@@ -132,7 +150,7 @@ func main() {
 		Now:      time.Now,
 	}
 	logger.Info("starting worker", "concurrency", cfg.Concurrency, "lease_mode", cfg.LeaseMode,
-		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "task_id", cfg.TaskID)
+		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "shutdown_mode", cfg.ShutdownMode, "task_id", cfg.TaskID)
 	loop.New(loop.Config{
 		SQS: sqsClient, QueueURL: cfg.QueueURL, Concurrency: cfg.Concurrency, WaitSeconds: 20,
 		VisibilityTimeoutS: cfg.VisibilityTimeoutS, Handle: proc.Handle, Logger: logger,
