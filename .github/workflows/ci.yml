@@ -40,6 +40,13 @@ jobs:
             echo "::endgroup::"
           done
 
+  worker-gdal:
+    # GDAL tests skip without a working ogr2ogr, so they run inside the worker's GDAL image.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f worker/Dockerfile --target test .
+
   python:
     runs-on: ubuntu-24.04
     steps:
