@@ -13,6 +13,7 @@ import (
 
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/jobstore"
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/worker/internal/gdal"
+	"github.com/AntonMenchaca/distributed-systems-geojson-converter/worker/internal/measure"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
@@ -90,6 +91,19 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 		return
 	}
 
+	// Peak disk is the whole job directory (input + output + ogr2ogr temp files), sampled from
+	// before the download until the conversion ends. disk_mb in
+	// estimates.json predicts this number.
+	stopDisk := measure.SampleDisk(ctx, jobDir, time.Second)
+	var peakDisk int64
+	diskDone := false
+	finishDisk := func() {
+		if !diskDone {
+			peakDisk, diskDone = stopDisk(), true
+		}
+	}
+	defer finishDisk()
+
 	t := time.Now()
 	in := filepath.Join(jobDir, "in.geojson")
 	if err := p.Objects.Download(ctx, qm.InputKey, in); err != nil {
@@ -100,6 +114,7 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 
 	outDir := filepath.Join(jobDir, "out")
 	stats, err := p.Convert(ctx, in, outDir, qm.OutputFormat, p.Profile)
+	finishDisk()
 	if err != nil {
 		p.fail(ctx, qm.JobID, epoch, "CONVERT_FAILED", err, logger)
 		return
@@ -138,7 +153,7 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 		UploadMS:     uploadMS,
 		PeakRSSMB:    float64(stats.PeakRSSMB),
 		CPUS:         stats.CPUS,
-		PeakDiskMB:   float64(stats.PeakDiskMB),
+		PeakDiskMB:   float64((peakDisk + (1<<20 - 1)) >> 20),
 		CommittedAt:  p.Now(),
 	})
 	if err != nil {

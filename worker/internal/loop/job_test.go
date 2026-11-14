@@ -125,3 +125,31 @@ func TestProcessAlreadyDoneDeletesWithoutConverting(t *testing.T) {
 		t.Fatalf("events %s, want claim then delete", got)
 	}
 }
+
+// sizedObjects downloads an input of inBytes.
+type sizedObjects struct{ inBytes int }
+
+func (o sizedObjects) Download(_ context.Context, _, path string) error {
+	return os.WriteFile(path, make([]byte, o.inBytes), 0o644)
+}
+func (o sizedObjects) Upload(context.Context, string, string) error { return nil }
+
+// Peak disk is the job directory's peak size: input plus output, which is what disk_mb in
+// estimates.json must predict for WORKER_CONCURRENCY=mem-budget.
+func TestPeakDiskCoversInputAndOutput(t *testing.T) {
+	tr := &trace{}
+	store := &fakeStore{tr: tr}
+	p := newProcessor(t, tr, store, nil)
+	p.Objects = sizedObjects{inBytes: 3 << 20}
+	p.Convert = func(_ context.Context, in, outDir, format, profile string) (gdal.Stats, error) {
+		_ = os.MkdirAll(outDir, 0o755)
+		if err := os.WriteFile(filepath.Join(outDir, "out.gpkg"), make([]byte, 2<<20), 0o644); err != nil {
+			return gdal.Stats{}, err
+		}
+		return gdal.Stats{PeakDiskMB: 2, FeatureCount: 1}, nil
+	}
+	p.Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	if store.result.PeakDiskMB < 5 {
+		t.Fatalf("PeakDiskMB = %v, want >= 5 (3 MiB input + 2 MiB output)", store.result.PeakDiskMB)
+	}
+}
