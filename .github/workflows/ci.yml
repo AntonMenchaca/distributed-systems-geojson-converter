@@ -79,6 +79,8 @@ jobs:
           if [ ! -d terraform ]; then echo "no terraform/ yet"; exit 0; fi
           terraform fmt -check -recursive terraform
           cd terraform && terraform init -backend=false -input=false && terraform validate
+          # Offline plan tests with mocked providers: Learner Lab guard and knob guards.
+          terraform test
 
   shell:
     runs-on: ubuntu-24.04
