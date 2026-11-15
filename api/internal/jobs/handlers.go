@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/api/internal/router"
@@ -74,6 +75,10 @@ func (h *Handlers) Register(r gin.IRoutes) {
 
 var formats = map[string]bool{"shp": true, "gpkg": true, "fgdb": true}
 
+// runIDPattern matches the run_id pattern in api.yaml and schemas/*.json. The worker puts
+// run_id into every output's S3 key and file name, so it must be safe in both.
+var runIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+
 type jobRequest struct {
 	Input struct {
 		DatasetID string `json:"dataset_id"`
@@ -103,8 +108,8 @@ func (h *Handlers) create(c *gin.Context) {
 			return
 		}
 	}
-	if req.RunID == "" {
-		badRequest(c, "INVALID_INPUT", "run_id is required")
+	if !runIDPattern.MatchString(req.RunID) {
+		badRequest(c, "INVALID_INPUT", "run_id must be 1-63 lowercase letters, digits or dashes, starting with a letter or digit")
 		return
 	}
 	if req.Input.UploadID != "" {

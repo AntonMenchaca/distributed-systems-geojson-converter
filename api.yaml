@@ -316,8 +316,12 @@ components:
           $ref: '#/components/schemas/OutputFormat'
         run_id:
           type: string
-          description: Groups every job of one experiment run, for collection by results tooling
-          example: local-x
+          pattern: '^[a-z0-9][a-z0-9-]{0,62}$'
+          description: |
+            Groups every job of one experiment run, for collection by results tooling. It is
+            part of every output's S3 key and file name, so only lowercase letters, digits and
+            dashes; anything else is a 400. Naming convention: README, "Runs and outputs".
+          example: p1-base-anton-s11
         chaos:
           type: object
           additionalProperties: true

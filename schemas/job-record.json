@@ -8,7 +8,7 @@
   "required": ["job_id", "run_id", "output_format", "size_class", "input_key", "input_bytes", "status", "epoch", "submitted_at"],
   "properties": {
     "job_id": { "type": "string", "minLength": 1 },
-    "run_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$", "description": "Lowercase letters, digits and dashes; part of every output key (outputs/{run_id}/{job_id}/). Naming convention: README, 'Runs and outputs'." },
     "output_format": { "enum": ["shp", "gpkg", "fgdb"] },
     "size_class": { "enum": ["small", "large"] },
     "queue": { "type": "string", "description": "Queue the message went to (jobs, jobs-small, jobs-large). Set by MarkQueued; absent on REJECTED jobs." },
@@ -29,7 +29,7 @@
     "package_ms": { "type": "integer", "minimum": 0 },
     "upload_ms": { "type": "integer", "minimum": 0 },
 
-    "output_key": { "type": "string" },
+    "output_key": { "type": "string", "description": "The single output object: outputs/{run_id}/{job_id}/{run_id}_{dataset}_{job_id[:8]}.gpkg, .shp.zip or .gdb.zip." },
     "output_bytes": { "type": "integer", "minimum": 0 },
     "output_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "feature_count": { "type": "integer", "minimum": 0 },

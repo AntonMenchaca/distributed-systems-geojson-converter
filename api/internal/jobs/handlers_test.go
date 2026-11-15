@@ -159,6 +159,26 @@ func TestPostJobUnknownFormatReturns400(t *testing.T) {
 	}
 }
 
+// run_id becomes part of every output's S3 key and file name, so only lowercase letters,
+// digits and dashes are accepted.
+func TestPostJobValidatesRunID(t *testing.T) {
+	r, _, _, _ := newServer(t)
+	for runID, want := range map[string]int{
+		"p1-base-anton-s11":     http.StatusAccepted,
+		"local-x":               http.StatusAccepted,
+		"Local-X":               http.StatusBadRequest,
+		"a/b":                   http.StatusBadRequest,
+		"run_1":                 http.StatusBadRequest,
+		"-leading-dash":         http.StatusBadRequest,
+		strings.Repeat("a", 64): http.StatusBadRequest,
+	} {
+		body := `{"input":{"dataset_id":"dc"},"output_format":"gpkg","run_id":"` + runID + `"}`
+		if w := do(r, http.MethodPost, "/jobs", body); w.Code != want {
+			t.Errorf("run_id %q: status %d, want %d; body %s", runID, w.Code, want, w.Body)
+		}
+	}
+}
+
 func TestGetJobReturns404ForUnknown(t *testing.T) {
 	r, _, _, _ := newServer(t)
 	if w := do(r, http.MethodGet, "/jobs/nope", ""); w.Code != http.StatusNotFound {

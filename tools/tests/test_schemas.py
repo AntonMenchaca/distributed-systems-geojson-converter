@@ -47,7 +47,7 @@ JOB_RECORD_EXAMPLE = {
     "convert_ms": 4100,
     "package_ms": 0,
     "upload_ms": 300,
-    "output_key": "outputs/9b2f6c1e-4a7d-4f0e-8c3b-2d1e5f6a7b8c/out.gpkg",
+    "output_key": "outputs/local-x/9b2f6c1e-4a7d-4f0e-8c3b-2d1e5f6a7b8c/local-x_dc_9b2f6c1e.gpkg",
     "output_bytes": 31000000,
     "output_sha256": "0" * 64,
     "feature_count": 58329,
@@ -84,6 +84,14 @@ def test_example_validates(schema_file, example):
 def test_schema_rejects_bad_enum(schema_file, example, bad):
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({**example, **bad}, load_schema(schema_file))
+
+
+@pytest.mark.parametrize("schema_file, example", [("queue-message.json", QUEUE_MESSAGE_EXAMPLE),
+                                                  ("job-record.json", JOB_RECORD_EXAMPLE)])
+@pytest.mark.parametrize("run_id", ["Local-X", "a/b", "run_1", "-x", "a" * 64])
+def test_schema_rejects_run_id_unsafe_for_s3_keys(schema_file, example, run_id):
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({**example, "run_id": run_id}, load_schema(schema_file))
 
 
 @pytest.mark.parametrize(
