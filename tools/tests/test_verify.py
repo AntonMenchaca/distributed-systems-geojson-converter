@@ -4,9 +4,16 @@ CATALOG = {"dc": {"features": 1000, "s3_key": "datasets/dc.geojson"}}
 
 
 def job(**kw):
-    base = {"job_id": "j1", "status": "SUCCEEDED", "input_key": "datasets/dc.geojson",
-            "output_format": "gpkg", "output_key": "outputs/j1/out.gpkg", "feature_count": 1000}
+    base = {"job_id": "j1", "run_id": "local-x", "status": "SUCCEEDED", "input_key": "datasets/dc.geojson",
+            "output_format": "gpkg", "output_key": "outputs/local-x/j1/local-x_dc_j1.gpkg", "feature_count": 1000}
     return {**base, **kw}
+
+
+def test_output_not_under_its_run_and_job_fails():
+    # outputs/{run_id}/{job_id}/ is how a file in S3 is traced back to its run and job.
+    report = verify.verify([job(output_key="outputs/j1/out.gpkg")], CATALOG, count_features=lambda j: 1000)
+    assert report["passed"] is False
+    assert report["failures"] == [{"job_id": "j1", "check": "output_key", "output_key": "outputs/j1/out.gpkg"}]
 
 
 def test_feature_count_mismatch_fails():

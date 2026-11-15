@@ -40,6 +40,10 @@ def verify(jobs: list[dict], catalog: dict[str, dict], count_features: Callable[
         if j["status"] != "SUCCEEDED":
             continue
         checked += 1
+        key = j.get("output_key", "")
+        if not key.startswith(f"outputs/{j.get('run_id')}/{j['job_id']}/"):
+            failures.append({"job_id": j["job_id"], "check": "output_key", "output_key": key})
+            continue
         expected = expected_by_key.get(j["input_key"])
         try:
             actual = count_features(j)
@@ -84,31 +88,15 @@ def ogr_feature_count(path: str) -> int:
 
 
 def s3_counter(s3, bucket: str) -> Callable[[dict], int]:
-    """Download a job's output (one object, or every object under a prefix ending in /) and count it."""
+    """Download a job's single output object and count it. The file keeps its name, because GDAL
+    picks the driver from the extension (.gpkg, .shp.zip, .gdb.zip)."""
 
     def count(job: dict) -> int:
         key = job.get("output_key", "")
         with tempfile.TemporaryDirectory() as tmp:
+            local = str(Path(tmp, Path(key).name))
             try:
-                if key.endswith("/"):
-                    pages = s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=key)
-                    objs = [o["Key"] for p in pages for o in p.get("Contents", [])]
-                    if not objs:
-                        raise OutputError(f"no objects under s3://{bucket}/{key}")
-                    for k in objs:
-                        dest = Path(tmp, "out", k[len(key):])
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        s3.download_file(bucket, k, str(dest))
-                    local = str(Path(tmp, "out"))
-                    if job["output_format"] == "fgdb":
-                        # OpenFileGDB opens the .gdb directory by name.
-                        os.rename(local, local + ".gdb")
-                        local += ".gdb"
-                else:
-                    local = str(Path(tmp, Path(key).name))
-                    s3.download_file(bucket, key, local)
-            except OutputError:
-                raise
+                s3.download_file(bucket, key, local)
             except Exception as e:  # botocore errors: report as an unopenable output, keep checking others
                 raise OutputError(f"fetch s3://{bucket}/{key}: {e}") from e
             return ogr_feature_count(local)
