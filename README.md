@@ -42,7 +42,7 @@ Every job belongs to a run, its `run_id`. The run name is part of every output's
 
 - `<phase>`: the experiment group, `p1` to `p9`.
 - `<change>`: `base` when every knob is at its baseline in [`knobs.md`](knobs.md); otherwise the one knob changed and its value, shortened, e.g. `lease-fixed12h`.
-- `<owner>`: whose account ran it: `anton`, `ikwo` or `samuel`.
+- `<owner>`: whose account ran it: `anton`, `ikwo` or `samuel` (the Terraform `prefix` without `gc-`).
 - `<seed>`: the trace seed.
 
 For example `p1-base-anton-s11` or `p3-lease-fixed12h-ikwo-s22`. Local Compose runs only need the character rule, e.g. `local-sample-1`.
@@ -64,9 +64,9 @@ Each of us deploys the full stack in our own AWS Academy Learner Lab account and
 
 1. Start the lab and copy its credentials into an AWS CLI profile.
 2. `export AWS_PROFILE=<your Learner Lab profile>`, then `aws sts get-caller-identity`. The ARN must contain `assumed-role/voclabs/`. If it doesn't, stop: you're about to deploy into another account. Terraform checks this too, and `plan` fails for any other caller.
-3. `cd terraform && terraform init && terraform apply -var prefix=gc-<a|b|c>`. This builds both images for linux/amd64 and pushes them to ECR. Every task uses the lab's existing `LabRole`; the stack creates no IAM resources, because Learner Lab doesn't allow it.
+3. `cd terraform && terraform init && terraform apply -var prefix=gc-<anton|ikwo|samuel>`. This builds both images for linux/amd64 and pushes them to ECR. Every task uses the lab's existing `LabRole`; the stack creates no IAM resources, because Learner Lab doesn't allow it.
 4. For a smoke test before the full dataset catalog is staged in S3, copy DC to `s3://$(terraform output -raw bucket)/datasets/dc.geojson`, then `curl -XPOST $(terraform output -raw alb_url)/jobs ...` as in Getting started.
-5. `terraform destroy -var prefix=gc-<a|b|c>`. Then check that nothing is left: `aws resourcegroupstaggingapi get-resources --tag-filters Key=Prefix,Values=gc-<a|b|c>`.
+5. `terraform destroy -var prefix=gc-<anton|ikwo|samuel>`. Then check that nothing is left: `aws resourcegroupstaggingapi get-resources --tag-filters Key=Prefix,Values=gc-<anton|ikwo|samuel>`.
 
 Knobs change only through Terraform variables, e.g. `-var lease_mode=fixed-12h`. A value whose code hasn't been built yet fails at plan, naming the step that builds it.
 

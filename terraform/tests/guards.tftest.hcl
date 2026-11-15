@@ -15,7 +15,7 @@ override_data {
 mock_provider "docker" {}
 
 variables {
-  prefix = "gc-c"
+  prefix = "gc-anton"
 }
 
 run "learner_lab_session_plans" {
@@ -57,6 +57,27 @@ run "unknown_prefix_is_refused" {
     prefix = "prod"
   }
   expect_failures = [var.prefix]
+}
+
+run "letter_prefix_is_refused" {
+  command = plan
+  variables {
+    prefix = "gc-c"
+  }
+  expect_failures = [var.prefix]
+}
+
+# gc-samuel is the longest prefix, so it is the one that could push a name past an AWS limit
+# (load balancer and target group names allow 32 characters).
+run "longest_owner_prefix_plans" {
+  command = plan
+  variables {
+    prefix = "gc-samuel"
+  }
+  override_data {
+    target = data.aws_caller_identity.current
+    values = { account_id = "123456789012", arn = "arn:aws:sts::123456789012:assumed-role/voclabs/user1234567=Student" }
+  }
 }
 
 # -target plans only a resource and its dependencies, so the guard must be a dependency of

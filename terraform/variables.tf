@@ -3,11 +3,11 @@
 # ---------------------------------------------------------------------------
 
 variable "prefix" {
-  description = "Account prefix every resource name starts with: gc-a (Ikwo), gc-b (Samuel), gc-c (Anton)"
+  description = "Owner of the Learner Lab account; every resource name starts with it and every resource is tagged with it"
   type        = string
   validation {
-    condition     = can(regex("^gc-[abc]$", var.prefix))
-    error_message = "prefix must be gc-a, gc-b or gc-c."
+    condition     = contains(["gc-anton", "gc-ikwo", "gc-samuel"], var.prefix)
+    error_message = "prefix must be gc-anton, gc-ikwo or gc-samuel."
   }
 }
 
