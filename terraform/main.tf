@@ -76,6 +76,9 @@ module "s3" {
   source = "./modules/s3"
   # Bucket names are global, so the account ID keeps each person's unique.
   bucket_name = "${local.prefix}-geojson-${data.aws_caller_identity.current.account_id}"
+  region      = var.aws_region
+  # Same tags as the provider's default_tags (provider.tf).
+  tags = { Project = "geojson-converter", Prefix = local.prefix }
 }
 
 module "sqs" {

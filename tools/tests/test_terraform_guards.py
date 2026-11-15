@@ -20,6 +20,14 @@ def test_no_iam_resources():
     assert offenders == []
 
 
+def test_no_aws_s3_bucket_resource():
+    # Learner Lab's SCP denies s3:GetBucketObjectLockConfiguration, which aws_s3_bucket reads
+    # after every create and refresh, so a declared aws_s3_bucket can never apply there.
+    offenders = [str(p.relative_to(ROOT)) for p in tf_files()
+                 if re.search(r'resource\s+"aws_s3_bucket"\s', p.read_text())]
+    assert offenders == []
+
+
 def test_roles_come_from_labrole():
     root = "\n".join(p.read_text() for p in TF.glob("*.tf"))
     assert re.search(r'data\s+"aws_iam_role"\s+"lab_role"\s*{\s*name\s*=\s*"LabRole"', root)

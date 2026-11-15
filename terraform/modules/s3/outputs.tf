@@ -1,7 +1,7 @@
 output "bucket" {
-  value = aws_s3_bucket.this.bucket
+  value = terraform_data.bucket.output.name
 }
 
 output "arn" {
-  value = aws_s3_bucket.this.arn
+  value = "arn:aws:s3:::${terraform_data.bucket.output.name}"
 }
