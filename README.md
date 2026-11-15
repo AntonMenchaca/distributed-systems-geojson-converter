@@ -36,6 +36,28 @@ docker compose run --rm tools python tools/verify.py --run-id local-sample-1 --o
 
 Change a knob through its environment variable, e.g. `LEASE_MODE=fixed-12h docker compose up --build` (see [`knobs.md`](knobs.md)).
 
+## Runs and outputs
+
+Every job belongs to a run, its `run_id`. The run name is part of every output's S3 key and file name, so the API accepts only lowercase letters, digits and dashes, at most 63 characters. Name runs `<phase>-<change>-<owner>-s<seed>`:
+
+- `<phase>`: the experiment group, `p1` to `p9`.
+- `<change>`: `base` when every knob is at its baseline in [`knobs.md`](knobs.md); otherwise the one knob changed and its value, shortened, e.g. `lease-fixed12h`.
+- `<owner>`: whose account ran it: `anton`, `ikwo` or `samuel`.
+- `<seed>`: the trace seed.
+
+For example `p1-base-anton-s11` or `p3-lease-fixed12h-ikwo-s22`. Local Compose runs only need the character rule, e.g. `local-sample-1`.
+
+Each successful job writes exactly one output object, named so the file alone says which run, dataset and job produced it:
+
+```
+outputs/<run>/<job_id>/<run>_<dataset>_<first 8 characters of job_id>.gpkg | .shp.zip | .gdb.zip
+```
+
+- The layer inside is the dataset name (`dc`), with characters FileGDB does not allow replaced by `_`.
+- GDAL opens `.shp.zip` and `.gdb.zip` without unzipping. Zipping is timed as `package_ms`, apart from `convert_ms`.
+- The object's S3 metadata repeats `run-id`, `job-id`, `dataset-id` and `output-format`.
+- Outputs are deleted with the stack. A run's lasting record is `results/<phase>/<run>/`, e.g. its `verify.json`.
+
 ## Deploying to AWS (your own Learner Lab account)
 
 Each of us deploys the full stack in our own AWS Academy Learner Lab account and tears it down in the same sitting.
