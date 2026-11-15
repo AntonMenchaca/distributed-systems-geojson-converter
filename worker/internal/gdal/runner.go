@@ -23,11 +23,17 @@ type Stats struct {
 	FeatureCount          int64
 }
 
-// The ogr2ogr driver (-f) and output name for each output format.
-var formats = map[string]struct{ driver, out string }{
-	"gpkg": {"GPKG", "out.gpkg"},
-	"shp":  {"ESRI Shapefile", "out"},
-	"fgdb": {"OpenFileGDB", "out.gdb"},
+// Target names one conversion's output: Name is the output's base name (Package's file is
+// Name plus the format's extension) and Layer is the layer inside it.
+type Target struct{ Name, Layer string }
+
+// For each output format: the ogr2ogr driver (-f), the suffix ogr2ogr writes to (a file for
+// gpkg, a directory for shp and fgdb), and the suffix of the single file Package returns.
+// GDAL opens .shp.zip and .gdb.zip directly, so the packaged file needs no unzipping.
+var formats = map[string]struct{ driver, out, packaged string }{
+	"gpkg": {"GPKG", ".gpkg", ".gpkg"},
+	"shp":  {"ESRI Shapefile", "", ".shp.zip"},
+	"fgdb": {"OpenFileGDB", ".gdb", ".gdb.zip"},
 }
 
 // profiles is the GDAL_PROFILE knob. gt1 commits one transaction per feature, reproducing a
@@ -39,14 +45,14 @@ var profiles = map[string][]string{
 
 // OutputPath is where Convert writes format's output inside outDir (a file for gpkg, a
 // directory for shp and fgdb).
-func OutputPath(outDir, format string) string {
-	return filepath.Join(outDir, formats[format].out)
+func OutputPath(outDir, format string, t Target) string {
+	return filepath.Join(outDir, t.Name+formats[format].out)
 }
 
 const mb = 1 << 20
 
-// Convert runs ogr2ogr on in, writing into outDir, and measures it.
-func Convert(ctx context.Context, in, outDir, format, profile string) (Stats, error) {
+// Convert runs ogr2ogr on in, writing t's output into outDir, and measures it.
+func Convert(ctx context.Context, in, outDir, format, profile string, t Target) (Stats, error) {
 	f, ok := formats[format]
 	if !ok {
 		return Stats{}, fmt.Errorf("gdal: unknown format %q", format)
@@ -61,8 +67,8 @@ func Convert(ctx context.Context, in, outDir, format, profile string) (Stats, er
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return Stats{}, err
 	}
-	out := OutputPath(outDir, format)
-	args := append([]string{"-f", f.driver, out, in, "-nln", "features"}, extra...)
+	out := OutputPath(outDir, format, t)
+	args := append([]string{"-f", f.driver, out, in, "-nln", t.Layer}, extra...)
 	cmd := exec.CommandContext(ctx, "ogr2ogr", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

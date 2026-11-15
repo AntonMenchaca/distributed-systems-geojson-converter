@@ -32,12 +32,12 @@ func (o S3Objects) Download(ctx context.Context, key, path string) error {
 	return f.Close()
 }
 
-func (o S3Objects) Upload(ctx context.Context, key, path string) error {
+func (o S3Objects) Upload(ctx context.Context, key, path string, meta map[string]string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	_, err = o.Client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(o.Bucket), Key: aws.String(key), Body: f})
+	_, err = o.Client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(o.Bucket), Key: aws.String(key), Body: f, Metadata: meta})
 	return err
 }
