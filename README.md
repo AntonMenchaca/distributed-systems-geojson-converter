@@ -14,6 +14,7 @@ Build against these files. Changing one needs a PR that updates the contract and
 - [`schemas/queue-message.json`](schemas/queue-message.json), [`schemas/job-record.json`](schemas/job-record.json)
 - [`knobs.md`](knobs.md): every knob, its env or Terraform name, allowed values and baseline
 - [`config/estimates.json`](config/estimates.json): per-format work, memory and disk models (v0 placeholder values, not yet fitted from measurements)
+- [`docs/results-layout.md`](docs/results-layout.md): where every run's results go, and what each run folder holds
 
 ## Getting started
 
