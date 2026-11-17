@@ -1,0 +1,468 @@
+openapi: 3.0.3
+info:
+  title: GeoJSON Conversion Service API
+  description: |
+    Converts GeoJSON to Shapefile, GeoPackage or FileGDB.
+
+    The API is stateless: it records each job in DynamoDB and enqueues it on
+    SQS, then returns immediately. Workers convert the file in the background,
+    so clients poll `GET /jobs/{id}` until the status is terminal
+    (`SUCCEEDED`, `FAILED`, `DEAD_LETTERED` or `REJECTED`).
+
+    Contract changes need a PR that
+    updates this file and its consumers together.
+  version: 0.1.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local Docker Compose stack
+  - url: http://{albDnsName}
+    description: Application Load Balancer on AWS
+    variables:
+      albDnsName:
+        default: example.us-east-1.elb.amazonaws.com
+        description: The alb_url Terraform output, without http://
+
+# No authentication: a course project behind a per-account ALB. Stated explicitly
+# so linters don't read the omission as an oversight.
+security: []
+
+paths:
+  /uploads:
+    post:
+      tags:
+        - Uploads
+      summary: Start an upload
+      description: |
+        Reserves an upload ID. With `UPLOAD_MODE=presigned` the client PUTs the
+        file to `put_url` (straight to S3). With the proxy modes, the client
+        PUTs it to `/uploads/{id}` instead and `put_url` points there.
+        Not implemented yet.
+      operationId: createUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadRequest'
+      responses:
+        '201':
+          description: Upload reserved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Upload'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/OverLimit'
+
+  /uploads/{id}:
+    put:
+      tags:
+        - Uploads
+      summary: Upload a file through the API (proxy modes only)
+      description: |
+        `UPLOAD_MODE=proxy-buffer` reads the whole body into memory before
+        writing it to S3; `proxy-stream` streams it. Returns 404 when
+        `UPLOAD_MODE=presigned`. Not implemented yet.
+      operationId: putUpload
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+      requestBody:
+        required: true
+        content:
+          application/geo+json:
+            schema:
+              type: string
+              format: binary
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: File stored
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /jobs:
+    post:
+      tags:
+        - Jobs
+      summary: Submit a conversion job
+      description: |
+        Records the job (`SUBMITTED`), routes it to a queue by size class and
+        enqueues it (`QUEUED`), then returns 202. The input is either a
+        pre-staged dataset from the catalog or a completed upload.
+      operationId: createJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+            example:
+              input:
+                dataset_id: dc
+              output_format: gpkg
+              run_id: local-x
+      responses:
+        '202':
+          description: Job accepted and queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAccepted'
+              example:
+                job_id: 9b2f6c1e-4a7d-4f0e-8c3b-2d1e5f6a7b8c
+                status: QUEUED
+                size_class: small
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/OverLimit'
+        '429':
+          description: |
+            Admission control (`ADMISSION=backlog`): the predicted wait is over
+            the target. The job is recorded as `REJECTED`. Retry after the
+            number of seconds in `Retry-After`.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /jobs/{id}:
+    get:
+      tags:
+        - Jobs
+      summary: Get a job's status, timings and output
+      operationId: getJob
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The job_id returned by POST /jobs
+      responses:
+        '200':
+          description: The job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns 200 once the server is listening. Used by the load balancer.
+      operationId: getHealth
+      responses:
+        '200':
+          description: The service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /metrics:
+    get:
+      tags:
+        - Health
+      summary: Prometheus metrics
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Metrics in the Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  parameters:
+    UploadId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: The upload_id returned by POST /uploads
+
+  responses:
+    BadRequest:
+      description: Invalid input (unknown output format, unknown dataset, malformed body)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    OverLimit:
+      description: |
+        Over a format or size limit (`ADMISSION=validate`, or
+        `SHP_LIMIT_MODE=reject` for a Shapefile predicted over 2 GB). The job
+        is recorded as `REJECTED`.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: No such job or upload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: The job could not be recorded or enqueued
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    OutputFormat:
+      type: string
+      enum:
+        - shp
+        - gpkg
+        - fgdb
+
+    JobStatus:
+      type: string
+      enum:
+        - SUBMITTED
+        - QUEUED
+        - RUNNING
+        - SUCCEEDED
+        - FAILED
+        - DEAD_LETTERED
+        - REJECTED
+      description: |
+        SUBMITTED: the API wrote the record.
+        QUEUED: the message is on a queue.
+        RUNNING: a worker claimed it.
+        SUCCEEDED / FAILED (permanent input error) / DEAD_LETTERED: terminal.
+        REJECTED: refused at admission, never queued.
+
+    SizeClass:
+      type: string
+      enum:
+        - small
+        - large
+      description: small when the predicted conversion time is under small_threshold_s in config/estimates.json
+
+    UploadRequest:
+      type: object
+      required:
+        - bytes
+      properties:
+        bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Size of the file to upload
+
+    Upload:
+      type: object
+      required:
+        - upload_id
+        - put_url
+      properties:
+        upload_id:
+          type: string
+        put_url:
+          type: string
+          description: Presigned S3 URL (presigned mode) or the API's /uploads/{id} URL (proxy modes)
+
+    JobRequest:
+      type: object
+      required:
+        - input
+        - output_format
+        - run_id
+      properties:
+        input:
+          type: object
+          description: Exactly one of dataset_id (pre-staged catalog entry) or upload_id.
+          minProperties: 1
+          maxProperties: 1
+          properties:
+            dataset_id:
+              type: string
+              example: dc
+            upload_id:
+              type: string
+        output_format:
+          $ref: '#/components/schemas/OutputFormat'
+        run_id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,62}$'
+          description: |
+            Groups every job of one experiment run, for collection by results tooling. It is
+            part of every output's S3 key and file name, so only lowercase letters, digits and
+            dashes; anything else is a 400. Naming convention: README, "Runs and outputs".
+          example: p1-base-anton-s11
+        chaos:
+          type: object
+          additionalProperties: true
+          description: |
+            Optional per-job fault-injection flags, copied into the queue message, e.g.
+            {"crash_at": 0.5}. Must be a JSON object; anything else is a 400.
+          example:
+            crash_at: 0.5
+
+    JobAccepted:
+      type: object
+      required:
+        - job_id
+        - status
+        - size_class
+      properties:
+        job_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        size_class:
+          $ref: '#/components/schemas/SizeClass'
+
+    Job:
+      type: object
+      required:
+        - job_id
+        - run_id
+        - status
+        - output_format
+        - size_class
+        - timings
+        - attempts
+      properties:
+        job_id:
+          type: string
+        run_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        output_format:
+          $ref: '#/components/schemas/OutputFormat'
+        size_class:
+          $ref: '#/components/schemas/SizeClass'
+        timings:
+          $ref: '#/components/schemas/Timings'
+        attempts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attempt'
+        output_url:
+          type: string
+          description: Presigned GET URL for the output; present only when status is SUCCEEDED
+        feature_count:
+          type: integer
+          format: int64
+        error_code:
+          type: string
+
+    Timings:
+      type: object
+      description: Copied from the job record. These timestamps are the source of every latency number.
+      properties:
+        submitted_at:
+          type: string
+          format: date-time
+        enqueued_at:
+          type: string
+          format: date-time
+        first_started_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        committed_at:
+          type: string
+          format: date-time
+        download_ms:
+          type: integer
+        convert_ms:
+          type: integer
+        package_ms:
+          type: integer
+        upload_ms:
+          type: integer
+
+    Attempt:
+      type: object
+      required:
+        - epoch
+        - task_id
+        - started_at
+      properties:
+        epoch:
+          type: integer
+          format: int64
+        task_id:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        outcome:
+          type: string
+          enum:
+            - SUCCEEDED
+            - FAILED
+            - STALE
+            - LOST
+            - ERROR
+        peak_rss_mb:
+          type: number
+        cpu_s:
+          type: number
+        peak_disk_mb:
+          type: number
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: UNKNOWN_FORMAT
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: string
+          description: Additional error details
+
+tags:
+  - name: Jobs
+    description: Conversion jobs
+  - name: Uploads
+    description: Input uploads (not implemented yet)
+  - name: Health
+    description: Service health and metrics

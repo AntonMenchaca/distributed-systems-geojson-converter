@@ -1,0 +1,6 @@
+# Reviewer rotation: Ikwo reviews Samuel's PRs, Samuel reviews Anton's, Anton reviews Ikwo's.
+terraform/   @AntonMenchaca
+api/         @ikwo-iq
+locust/      @ikwo-iq
+worker/      @duddysam
+jobstore/    @duddysam

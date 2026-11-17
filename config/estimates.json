@@ -1,0 +1,10 @@
+{
+  "version": "v0",
+  "fitted_at": null,
+  "small_threshold_s": 30,
+  "formats": {
+    "gpkg": { "work_s": [1.0, 0.10], "mem_mb": [150, 4.0], "disk_mb": [10, 2.5], "out_ratio": 0.6, "fit_r2": null },
+    "shp":  { "work_s": [1.0, 0.08], "mem_mb": [150, 4.0], "disk_mb": [10, 2.5], "out_ratio": 0.5, "fit_r2": null },
+    "fgdb": { "work_s": [1.0, 0.12], "mem_mb": [150, 4.0], "disk_mb": [10, 2.5], "out_ratio": 0.4, "fit_r2": null }
+  }
+}

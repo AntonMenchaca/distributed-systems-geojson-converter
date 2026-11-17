@@ -1,0 +1,126 @@
+# The whole service on this machine: API, worker, emulated S3/SQS/DynamoDB, Prometheus and Grafana.
+#   docker compose up --build
+# API: http://localhost:8080   Prometheus: http://localhost:9090   Grafana: http://localhost:3000
+#
+# Knobs (knobs.md) change only through these environment variables, e.g.
+#   LEASE_MODE=fixed-12h docker compose up --build
+# Tools (verify.py needs GDAL): docker compose run --rm tools python tools/verify.py --run-id <run> --out results/local-<run>/verify.json
+
+x-aws-local: &aws-local
+  AWS_REGION: us-east-1
+  AWS_DEFAULT_REGION: us-east-1 # boto3 (tools) reads this one
+  AWS_ACCESS_KEY_ID: local
+  AWS_SECRET_ACCESS_KEY: local
+  AWS_ENDPOINT_URL: http://localstack:4566
+  AWS_ENDPOINT_URL_DYNAMODB: http://dynamodb:8000
+  S3_FORCE_PATH_STYLE: "true"
+  BUCKET: gc-local
+  JOBS_TABLE: jobs
+  QUEUE_URL_JOBS: http://localstack:4566/000000000000/jobs
+  QUEUE_URL_JOBS_SMALL: http://localstack:4566/000000000000/jobs-small
+  QUEUE_URL_JOBS_LARGE: http://localstack:4566/000000000000/jobs-large
+
+services:
+  dynamodb:
+    # Same image the jobstore tests and CI use.
+    image: amazon/dynamodb-local:2.5.2
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  localstack:
+    # 4.14 is the last LocalStack image that runs without an auth token.
+    image: localstack/localstack:4.14
+    environment:
+      SERVICES: s3,sqs
+      BUCKET: gc-local
+      JOBS_TABLE: jobs
+      DYNAMODB_ENDPOINT: http://dynamodb:8000
+    volumes:
+      - ./local/init.sh:/etc/localstack/init/ready.d/init.sh:ro
+      - ./local:/opt/gc/local:ro
+      - ./datasets/local:/opt/gc/datasets:ro
+      - gc-data:/var/lib/gc-data
+    ports:
+      - "127.0.0.1:4566:4566"
+    healthcheck:
+      # Healthy only once init.sh has finished AND succeeded: LocalStack marks the stage
+      # "completed" even when a script fails, so every script's state must be SUCCESSFUL.
+      test: ["CMD", "python3", "-c", "import json,sys,urllib.request as u; r=json.load(u.urlopen('http://localhost:4566/_localstack/init/ready')); sys.exit(0 if r['completed'] and r['scripts'] and all(s['state'] == 'SUCCESSFUL' for s in r['scripts']) else 1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 100
+      start_period: 10s
+    depends_on:
+      - dynamodb
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      <<: *aws-local
+      # Release mode stops Gin printing its debug banner between the JSON log lines.
+      GIN_MODE: release
+      QUEUE_LAYOUT: ${QUEUE_LAYOUT:-single}
+      COMMIT_MODE: ${COMMIT_MODE:-blind}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    environment:
+      <<: *aws-local
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-fixed-4}
+      LEASE_MODE: ${LEASE_MODE:-fixed-30s}
+      COMMIT_MODE: ${COMMIT_MODE:-blind}
+      GDAL_PROFILE: ${GDAL_PROFILE:-defaults}
+      # ignore: SIGTERM does nothing, so `docker compose stop` kills the worker mid-job after 10 s
+      SHUTDOWN_MODE: ${SHUTDOWN_MODE:-ignore}
+      WORK_DIR: /tmp/jobs
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    environment:
+      # Local only: open Grafana without a login, with permission to edit panels.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/geojson-converter.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+
+  tools:
+    # Not started by `up`; run with `docker compose run --rm tools ...`.
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: tools/Dockerfile
+    environment:
+      <<: *aws-local
+    volumes:
+      - .:/repo
+
+volumes:
+  gc-data:

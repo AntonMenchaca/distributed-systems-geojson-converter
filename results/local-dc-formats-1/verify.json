@@ -1,0 +1,13 @@
+{
+  "version": "v0",
+  "passed": true,
+  "complete": true,
+  "unfinished": [],
+  "jobs": 3,
+  "checked": 3,
+  "status_counts": {
+    "SUCCEEDED": 3
+  },
+  "failures": [],
+  "run_id": "local-dc-formats-1"
+}
