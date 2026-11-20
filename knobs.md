@@ -28,7 +28,7 @@ The baseline run (`p1-base`) sets every knob to its **Baseline** value; each lat
 | `ADMISSION` | env | `admission` | api | `off`, `validate`, `backlog` | `off` | `validate` (format limits, max size); `backlog` (`429` when predicted wait passes a target) |
 | `SCALER` | env | `scaler` | autoscaler | `fixed`, `cpu`, `memory`, `backlog-msgs`, `backlog-work`, `native` | `fixed` | `backlog-work`; others for comparison (`native` = ECS target tracking) |
 | `SCALER_COOLDOWN` | env | `scaler_cooldown` | autoscaler | `none`, `out=<s>,in=<s>,band=<fraction>` | `none` (no cooldown, no hysteresis) | `out=60,in=180,band=<to be measured>` |
-| `WORKER_IMAGE` | terraform | `worker_image` | terraform | `gdal-full` (ubuntu-full), `gdal-slim` (image not chosen yet) | `gdal-full` | `gdal-slim` |
+| `WORKER_IMAGE` | terraform | `worker_image` | terraform | `gdal-full` (ubuntu-full), `gdal-slim` (alpine-small) | `gdal-full` | `gdal-slim` |
 | `TASK_SHAPE` | terraform | `worker_count`, `worker_cpu` (CPU units), `worker_memory` (MiB), `worker_ephemeral_gb` | terraform | n × (vCPU, memory, disk) at a fixed budget, e.g. `16x0.25-1`, `4x1-4`, `1x4-16` | `4x1-4` (4 × 1 vCPU, 4 GB, 20 GB default disk) | — (a variable, not a fix) |
 | `INPUT_MODE` | env | `input_mode` | worker | `download`, `stream` (`/vsis3/` or GeoJSONSeq) | `download` | `stream` |
 | `SPLIT_K`, `SPECULATE` | env | `split_k`, `speculate` | api, worker | `SPLIT_K`: integer ≥ 1; `SPECULATE`: `off`, `on` | `1`, `off` | k chunks; backup copies of slow chunks |

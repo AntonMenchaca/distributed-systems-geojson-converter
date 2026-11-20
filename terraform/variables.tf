@@ -239,8 +239,8 @@ variable "worker_image" {
   type        = string
   default     = "gdal-full"
   validation {
-    condition     = contains(["gdal-full", "gdal-slim", "gdal-small"], var.worker_image)
-    error_message = "worker_image: gdal-full, gdal-slim or gdal-small."
+    condition     = contains(["gdal-full", "gdal-slim"], var.worker_image)
+    error_message = "worker_image: gdal-full or gdal-slim."
   }
 }
 
