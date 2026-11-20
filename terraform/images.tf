@@ -19,6 +19,7 @@ locals {
   gdal_images = {
     gdal-full = "ghcr.io/osgeo/gdal:ubuntu-full-3.13.3@sha256:2dd0f81ef927ff4c3d4dbe4f73c029dc86d4073974c0564f8e196f6e1412e2e0"
     gdal-slim = "ghcr.io/osgeo/gdal:ubuntu-small-3.13.3@sha256:64250faf833c06d4b21afce4c27190039ba7ab58d70f0eebc87cf77d929c0b40"
+    gdal-small = "ghcr.io/osgeo/gdal:alpine-small-3.13.0@sha256:dc253a8795f30917f72e3a135cea1613a18d8d19eab8d9f9ce99f6353b1d69a5"
   }
 
   src_hash = { for name, globs in {

@@ -1,0 +1,1 @@
+# 002 Spike: GDAL images
