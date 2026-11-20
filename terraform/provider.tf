@@ -5,10 +5,6 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.7.0"
     }
-    docker = {
-      source  = "kreuzwerker/docker"
-      version = "~> 2.25"
-    }
   }
 }
 
@@ -27,13 +23,3 @@ provider "aws" {
   }
 }
 
-# Terraform's Docker provider logs in to ECR with a short-lived token.
-data "aws_ecr_authorization_token" "registry" {}
-
-provider "docker" {
-  registry_auth {
-    address  = data.aws_ecr_authorization_token.registry.proxy_endpoint
-    username = data.aws_ecr_authorization_token.registry.user_name
-    password = data.aws_ecr_authorization_token.registry.password
-  }
-}

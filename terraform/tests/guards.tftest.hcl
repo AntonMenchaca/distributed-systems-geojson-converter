@@ -12,8 +12,6 @@ override_data {
   values = { names = ["us-east-1a", "us-east-1b"] }
 }
 
-mock_provider "docker" {}
-
 variables {
   prefix = "gc-anton"
 }
@@ -85,7 +83,7 @@ run "longest_owner_prefix_plans" {
 run "targeted_plan_by_non_learner_lab_caller_is_refused" {
   command = plan
   plan_options {
-    target = [module.s3, docker_registry_image.worker, module.sqs]
+    target = [module.s3, terraform_data.worker_image, module.sqs]
   }
   override_data {
     target = data.aws_caller_identity.current
