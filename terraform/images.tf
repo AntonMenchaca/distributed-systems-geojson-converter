@@ -1,5 +1,6 @@
-# Build the API and worker images for linux/amd64 (Fargate) and push them to ECR. Services
-# reference them by digest, so a code change rolls out new tasks; a source hash triggers the
+# Build the API and worker images for linux/amd64 (Fargate) and push them to ECR with the
+# Docker CLI (via local-exec), then look up the pushed digests. Services reference the
+# images by digest, so a code change rolls out new tasks; a source hash triggers the
 # rebuild, because the image name alone never changes.
 
 module "api_ecr" {
@@ -28,37 +29,47 @@ locals {
     } : name => sha1(join("", [
       for f in sort(flatten([for g in globs : tolist(fileset(local.repo_root, g))])) : filesha1("${local.repo_root}/${f}")
   ])) }
+
+  ecr_registry = split("/", module.api_ecr.repository_url)[0]
+  ecr_region   = split(".", local.ecr_registry)[3]
 }
 
-resource "docker_image" "api" {
-  name = "${module.api_ecr.repository_url}:latest"
-  build {
-    context    = local.repo_root
-    dockerfile = "api/Dockerfile"
-    platform   = "linux/amd64"
+resource "terraform_data" "api_image" {
+  triggers_replace = local.src_hash["api"]
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -e
+      aws ecr get-login-password --region ${local.ecr_region} | docker login --username AWS --password-stdin ${local.ecr_registry}
+      docker build --platform linux/amd64 -f ${local.repo_root}/api/Dockerfile -t ${module.api_ecr.repository_url}:latest ${local.repo_root}
+      docker push ${module.api_ecr.repository_url}:latest
+    EOT
   }
-  triggers = { src = local.src_hash["api"] }
 }
 
-resource "docker_registry_image" "api" {
-  name     = docker_image.api.name
-  triggers = { src = local.src_hash["api"] }
-}
+resource "terraform_data" "worker_image" {
+  triggers_replace = "${local.src_hash["worker"]}-${var.worker_image}"
 
-resource "docker_image" "worker" {
-  name = "${module.worker_ecr.repository_url}:latest"
-  build {
-    context    = local.repo_root
-    dockerfile = "worker/Dockerfile"
-    platform   = "linux/amd64"
-    build_arg = {
-      GDAL_IMAGE = local.gdal_images[var.worker_image]
-    }
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -e
+      aws ecr get-login-password --region ${local.ecr_region} | docker login --username AWS --password-stdin ${local.ecr_registry}
+      docker build --platform linux/amd64 -f ${local.repo_root}/worker/Dockerfile --build-arg GDAL_IMAGE=${local.gdal_images[var.worker_image]} -t ${module.worker_ecr.repository_url}:latest ${local.repo_root}
+      docker push ${module.worker_ecr.repository_url}:latest
+    EOT
   }
-  triggers = { src = "${local.src_hash["worker"]}-${var.worker_image}" }
 }
 
-resource "docker_registry_image" "worker" {
-  name     = docker_image.worker.name
-  triggers = { src = "${local.src_hash["worker"]}-${var.worker_image}" }
+data "aws_ecr_image" "api" {
+  repository_name = split("/", module.api_ecr.repository_url)[1]
+  image_tag       = "latest"
+  depends_on      = [terraform_data.api_image]
+}
+
+data "aws_ecr_image" "worker" {
+  repository_name = split("/", module.worker_ecr.repository_url)[1]
+  image_tag       = "latest"
+  depends_on      = [terraform_data.worker_image]
 }

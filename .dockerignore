@@ -3,3 +3,8 @@
 **/.pytest_cache
 results
 *.geojson
+.terraform
+**/.terraform
+terraform/
+**/node_modules
+**/__pycache__
