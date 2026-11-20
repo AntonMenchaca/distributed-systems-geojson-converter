@@ -7,3 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3-venv &&
 RUN python3 -m venv --system-site-packages /venv && /venv/bin/pip install --no-cache-dir -q -r /tmp/requirements.txt
 ENV PATH=/venv/bin:$PATH
 WORKDIR /repo
+# Bake the tools and the committed catalog in, so the image also runs as a one-off ECS task
+# (tools/stage_datasets.py). Compose mounts the repo over /repo, so local runs still see live files.
+COPY tools/ /repo/tools/
+COPY datasets/ /repo/datasets/
