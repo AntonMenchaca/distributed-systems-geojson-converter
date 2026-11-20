@@ -2,17 +2,24 @@
 
 Runs inside AWS, after every `terraform apply`: the stack is stateless and `terraform destroy`
 deletes the bucket with everything in it (docs/decisions/004-dataset-catalog.md). Downloads the
-8 Microsoft states, cuts the California ladder and GeoJSONSeq copies (tools/cut_ladder.py) and
-uploads everything under datasets/.
+8 Microsoft states, cuts the California ladder and GeoJSONSeq copies (tools/cut_ladder.py),
+generates the H.2 files s1-s6 and p1-p4, p6 (tools/gen_geojson.py, seed 11; p5 waits for its
+size from Phase 2) and uploads everything under datasets/.
 
     # every sitting: stage and check each file's sha256 against the committed catalog
     python tools/stage_datasets.py --bucket "$BUCKET"
 
+    # measure only the H.2 rows, anywhere (they are generated, not downloaded), uploading nothing
+    python tools/stage_datasets.py --dry-run --measure --only s1,s2,s3,s4,s5,s6,p1,p2,p3,p4,p6 \
+        --catalog datasets/datasets.csv --catalog-out datasets/datasets.csv
+
     # once, to build the catalog: measure every file and write datasets.csv
     python tools/stage_datasets.py --bucket "$BUCKET" --measure --catalog-out /tmp/stage/datasets.csv
 
-With --measure the new catalog is also uploaded to s3://$BUCKET/datasets/datasets.csv, so it can
-be fetched from a Fargate task and committed. --only dc stages one state for a quick check.
+With --measure, the measured rows replace or extend the rows already in --catalog (so
+`--measure --only s1,s2` adds just those), and the new catalog is also uploaded to
+s3://$BUCKET/datasets/datasets.csv, so it can be fetched from AWS and committed.
+--only dc stages one state for a quick check.
 Disk: California peaks at about 7 GB (unzipped file plus the largest cut); every file is
 deleted once uploaded.
 """
@@ -29,6 +36,7 @@ import zipfile
 from pathlib import Path
 
 import cut_ladder
+import gen_geojson
 
 URL = "https://minedbuildings.z5.web.core.windows.net/legacy/usbuildings-v2/{name}.geojson.zip"
 # (dataset_id, Microsoft file name). Chosen in docs/decisions/004-dataset-catalog.md.
@@ -43,6 +51,11 @@ STATES = [
     ("ca", "California"),
 ]
 LADDER_STATE = "ca"
+# H.2 files, generated fresh each sitting. Same seed, same bytes, so their sha256s still check.
+SYNTHETIC = [("s1", "S1"), ("s2", "S2"), ("s3", "S3"), ("s4", "S4"), ("s5", "S5"), ("s6", "S6"),
+             ("p1", "P1"), ("p2", "P2"), ("p3", "P3"), ("p4", "P4"), ("p6", "P6")]
+SYNTHETIC_SEED = 11
+UNMEASURABLE = {"p1", "p6"}  # truncated JSON and invalid UTF-8: by design, nothing can parse them
 COLUMNS = ["dataset_id", "s3_key", "bytes", "features", "geometry_type", "vertex_count",
            "attribute_count", "sha256", "source"]
 RETRY_WAITS = (5, 15, 45)       # seconds before each retry of a failed download
@@ -96,7 +109,24 @@ def key_for(path: Path) -> str:
 
 
 def row_for(dataset_id: str, path: Path, source: str) -> dict:
-    return {"dataset_id": dataset_id, "s3_key": key_for(path), **cut_ladder.measure(path), "source": source}
+    if dataset_id in UNMEASURABLE:
+        # Only bytes and sha256: the API needs bytes, and no job on these ever succeeds, so
+        # verify.py never needs their feature count.
+        counts = {"bytes": path.stat().st_size, "features": "", "geometry_type": "", "vertex_count": "",
+                  "attribute_count": "", "sha256": cut_ladder.sha256(path)}
+    else:
+        counts = cut_ladder.measure(path)
+    return {"dataset_id": dataset_id, "s3_key": key_for(path), **counts, "source": source}
+
+
+def synthetic_source(kind: str) -> str:
+    flag = "--shape" if kind.startswith("S") else "--poison"
+    return f"synthetic:tools/gen_geojson.py {flag} {kind} --seed {SYNTHETIC_SEED}"
+
+
+def generate_synthetic(kind: str, out: Path) -> Path:
+    target = gen_geojson.DEFAULT_TARGET_MB["S"] if kind.startswith("S") else gen_geojson.DEFAULT_TARGET_MB.get(kind)
+    return gen_geojson.generate(kind, SYNTHETIC_SEED, out, target)
 
 
 def check_sha(dataset_id: str, path: Path, catalog: dict[str, dict]) -> None:
@@ -164,7 +194,20 @@ def stage(bucket: str, workdir: Path, catalog: dict[str, dict] | None, only: set
                 continue
             handle(rung_id, path, ladder_source(rung_id, url))
         src.unlink()
+
+    for dataset_id, kind in SYNTHETIC:
+        if only and dataset_id not in only:
+            continue
+        print(f"{dataset_id}: generating {kind}", flush=True)
+        handle(dataset_id, generate_synthetic(kind, workdir / f"{dataset_id}.geojson"), synthetic_source(kind))
     return rows
+
+
+def merge_catalog(base: dict[str, dict], rows: list[dict]) -> list[dict]:
+    """Measured rows replace rows with the same dataset_id and the rest are appended, in order."""
+    new = {r["dataset_id"]: r for r in rows}
+    merged = [new.pop(d, r) for d, r in base.items()]
+    return merged + list(new.values())
 
 
 def s3_uploader():
@@ -181,7 +224,9 @@ def s3_uploader():
 
 def main(argv: list[str] | None = None, upload=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--bucket", required=True)
+    p.add_argument("--bucket", help="run bucket to upload to (not needed with --dry-run)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="build and measure files but upload nothing (e.g. measuring the H.2 rows on a laptop)")
     p.add_argument("--workdir", type=Path, default=Path("/tmp/stage"))
     p.add_argument("--catalog", type=Path, default=Path("datasets/datasets.csv"),
                    help="committed catalog to check sha256s against")
@@ -191,11 +236,17 @@ def main(argv: list[str] | None = None, upload=None) -> int:
     a = p.parse_args(argv)
     if a.measure and not a.catalog_out:
         p.error("--measure needs --catalog-out")
+    if not a.bucket and not a.dry_run:
+        p.error("--bucket is required unless --dry-run")
+    if a.dry_run:
+        upload = lambda path, bucket, key: print(f"  dry run: not uploading {key}", flush=True)
     upload = upload or s3_uploader()
     only = set(a.only.split(",")) if a.only else None
     catalog = None if a.measure else read_catalog(a.catalog)
     rows = stage(a.bucket, a.workdir, catalog, only, upload)
     if a.measure:
+        base = read_catalog(a.catalog) if a.catalog.exists() else {}
+        rows = merge_catalog(base, rows)
         out = write_catalog(rows, a.catalog_out)
         upload(out, a.bucket, "datasets/datasets.csv")
         print(f"wrote {out} ({len(rows)} rows)")
