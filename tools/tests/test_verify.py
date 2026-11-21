@@ -56,3 +56,54 @@ def test_nothing_checked_does_not_pass():
     report = verify.verify([job(status="FAILED")], CATALOG, count_features=lambda j: 1000)
     assert report["checked"] == 0
     assert report["passed"] is False
+
+
+def test_verify_flags_status_regression():
+    # Succeeded, then another attempt. status_counts still say SUCCEEDED and the feature
+    # count matches, which is the summary that would otherwise look fine.
+    later = job(attempts=[
+        {"epoch": 1, "task_id": "task-a", "outcome": "SUCCEEDED"},
+        {"epoch": 2, "task_id": "task-b", "outcome": "FAILED"},
+    ])
+    report = verify.verify([later], CATALOG, count_features=lambda j: 1000)
+    assert report["passed"] is False
+    assert report["checked"] == 1
+    assert report["failures"] == [{"job_id": "j1", "check": "status_regression", "status": "SUCCEEDED"}]
+
+    # The status moved off a success (QUEUED after an attempt already succeeded).
+    backwards = job(job_id="j2", status="QUEUED",
+                    attempts=[{"epoch": 1, "task_id": "task-a", "outcome": "SUCCEEDED"}])
+    report = verify.verify([backwards], CATALOG, count_features=lambda j: 1000)
+    assert report["checked"] == 0
+    assert report["failures"] == [{"job_id": "j2", "check": "status_regression", "status": "QUEUED"}]
+
+
+def test_verify_flags_mixed_attempt_shapefile():
+    # A shapefile is several files. Two attempts can zip sidecars from both, and the
+    # feature count still matches.
+    attempts = [
+        {"epoch": 1, "task_id": "task-a", "outcome": "LOST"},
+        {"epoch": 2, "task_id": "task-b", "outcome": "SUCCEEDED"},
+    ]
+    shp = job(output_format="shp", output_key="outputs/local-x/j1/local-x_dc_j1.shp.zip", attempts=attempts)
+    report = verify.verify([shp], CATALOG, count_features=lambda j: 1000)
+    assert report["passed"] is False
+    assert report["failures"] == [{"job_id": "j1", "check": "mixed_attempt", "output_format": "shp"}]
+
+    # The same two attempts are not a mixed shapefile on a single-file format, and a
+    # shapefile from one attempt is clean.
+    gpkg = job(attempts=attempts)
+    one = job(job_id="j2", output_format="shp", output_key="outputs/local-x/j2/local-x_dc_j2.shp.zip",
+              attempts=[{"epoch": 1, "task_id": "task-a", "outcome": "SUCCEEDED"}])
+    assert verify.verify([gpkg], CATALOG, count_features=lambda j: 1000)["passed"] is True
+    assert verify.verify([one], CATALOG, count_features=lambda j: 1000)["passed"] is True
+
+
+def test_verify_nonzero_exit_on_failure(tmp_path):
+    # A failed check has to fail the process, not only the JSON a summary might skip.
+    bad = tmp_path / "verify.json"
+    report = verify.verify([job()], CATALOG, count_features=lambda j: 999)
+    assert verify.finish(bad, "local-x", report) == 1
+    assert '"passed": false' in bad.read_text()
+    ok = verify.verify([job()], CATALOG, count_features=lambda j: 1000)
+    assert verify.finish(tmp_path / "ok.json", "local-x", ok) == 0

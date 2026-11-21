@@ -1,6 +1,9 @@
 """Verify a run's outputs (v0).
 
 For each SUCCEEDED job: the output opens in GDAL and has the input dataset's feature count.
+A run also fails when a job's status contradicts its attempts (a success that was not the
+final attempt, or a SUCCEEDED job whose last attempt did not succeed) or when a Shapefile
+was produced by more than one attempt. Both of those still look fine in status_counts.
 Writes verify.json and exits non-zero if any check fails, any job is not yet terminal, or no
 output was checked.
 
@@ -37,6 +40,7 @@ def verify(jobs: list[dict], catalog: dict[str, dict], count_features: Callable[
     failures: list[dict] = []
     checked = 0
     for j in jobs:
+        failures.extend(record_failures(j))
         if j["status"] != "SUCCEEDED":
             continue
         checked += 1
@@ -67,6 +71,47 @@ def verify(jobs: list[dict], catalog: dict[str, dict], count_features: Callable[
         "status_counts": dict(Counter(j["status"] for j in jobs)),
         "failures": failures,
     }
+
+
+def attempts_of(job: dict) -> list:
+    raw = job.get("attempts") or []
+    return raw if isinstance(raw, list) else []
+
+
+def status_regressed(job: dict) -> bool:
+    """True when a success was not final, or the status and the last attempt disagree.
+
+    A later attempt after SUCCEEDED, a SUCCEEDED job whose last attempt did not succeed,
+    and an attempt that succeeded while the job status moved off SUCCEEDED are the same
+    failure: the status went somewhere it should not have.
+    """
+    attempts = attempts_of(job)
+    if not attempts:
+        return False
+    success_at = [i for i, a in enumerate(attempts) if isinstance(a, dict) and a.get("outcome") == "SUCCEEDED"]
+    if any(i != len(attempts) - 1 for i in success_at):
+        return True
+    last = attempts[-1]
+    last_outcome = last.get("outcome") if isinstance(last, dict) else None
+    if job.get("status") == "SUCCEEDED" and last_outcome != "SUCCEEDED":
+        return True
+    return bool(success_at) and job.get("status") != "SUCCEEDED"
+
+
+def mixed_attempt_shapefile(job: dict) -> bool:
+    """A shapefile is several files. Two attempts can leave sidecars from both in the zip,
+    with a feature count that still matches."""
+    return (job.get("status") == "SUCCEEDED" and job.get("output_format") == "shp"
+            and len(attempts_of(job)) >= 2)
+
+
+def record_failures(job: dict) -> list[dict]:
+    out = []
+    if status_regressed(job):
+        out.append({"job_id": job["job_id"], "check": "status_regression", "status": job.get("status")})
+    if mixed_attempt_shapefile(job):
+        out.append({"job_id": job["job_id"], "check": "mixed_attempt", "output_format": "shp"})
+    return out
 
 
 def load_catalog(path: Path) -> dict[str, dict]:
@@ -136,9 +181,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no jobs for run_id {args.run_id}", file=sys.stderr)
         return 2
     report = verify(jobs, load_catalog(args.catalog), s3_counter(s3, args.bucket))
-    report["run_id"] = args.run_id
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(report, indent=2, default=str) + "\n")
+    return finish(args.out, args.run_id, report)
+
+
+def finish(out: Path, run_id: str, report: dict) -> int:
+    """Write verify.json and return the process status: 0 when the run passed, 1 when it did not."""
+    report["run_id"] = run_id
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, default=str) + "\n")
     print(json.dumps({k: report[k] for k in ("passed", "jobs", "checked", "status_counts")}))
     return 0 if report["passed"] else 1
 
