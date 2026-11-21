@@ -1,0 +1,11 @@
+t_offset_s,dataset_id,output_format,chaos
+0.602,pts-1k,gpkg,
+1.423,pts-1k,gpkg,
+4.002,dc,gpkg,"{""crash_at"":0.5}"
+4.629,polys-10k,shp,"{""crash_at"":0.5}"
+5.338,polys-10k,shp,"{""crash_at"":0.5}"
+6.223,pts-1k,shp,
+6.427,dc,shp,
+7.145,dc,shp,
+8.139,dc,fgdb,"{""crash_at"":0.5}"
+9.714,pts-1k,gpkg,"{""crash_at"":0.5}"
