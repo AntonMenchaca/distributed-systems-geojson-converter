@@ -148,6 +148,11 @@ func parseProcStatusRSS(status string) (int64, error) {
 	return 0, fmt.Errorf("measure: VmRSS missing")
 }
 
+// TODO(2.1): Define profile.csv's header here, as a []string, once the column
+// names are copied from geojson-plan-design.md's Phase 2 table. Order in that
+// slice is the file's column order. Leave it unset until those names exist;
+// WriteProfile refuses an empty header so a guessed schema cannot be written.
+
 // WriteProfile writes one profile.csv record: the header, then one already-measured
 // row. header is the column list from the project plan's Phase 2 table. This
 // function does not choose those names. An empty header is refused so a guessed

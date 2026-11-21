@@ -177,6 +177,10 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	}
 	uploadMS := time.Since(t).Milliseconds()
 
+	// TODO(2.1): When PROFILE=1, call measure.WriteProfile with the header defined
+	// next to that function. Supply one value per column, in that order, from this
+	// job: the queue message, stats (ProfilePeakRSSBytes, OgrinfoMS, wall, CPU,
+	// feature count), info.Size(), and peakDisk. Do not invent column names.
 	err = p.Store.Commit(ctx, qm.JobID, epoch, jobstore.Result{
 		OutputKey:    key,
 		OutputBytes:  info.Size(),
