@@ -21,8 +21,20 @@ func TestLoadConfigBaselineDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Concurrency != 4 || cfg.LeaseMode != "fixed-30s" || cfg.CommitMode != "blind" || cfg.Profile != "defaults" {
-		t.Fatalf("defaults %+v, want fixed-4 / fixed-30s / blind / defaults (knobs.md baselines)", cfg)
+	if cfg.Concurrency != 4 || cfg.LeaseMode != "fixed-30s" || cfg.CommitMode != "blind" || cfg.Profile != "defaults" || cfg.MeasureProfile {
+		t.Fatalf("defaults %+v, want fixed-4 / fixed-30s / blind / defaults, PROFILE off (knobs.md baselines)", cfg)
+	}
+}
+
+func TestProfileRunsOneJobAtATime(t *testing.T) {
+	m := with("WORKER_CONCURRENCY", "fixed-4")
+	m["PROFILE"] = "1"
+	cfg, err := loadConfig(env(m))
+	if err != nil || !cfg.MeasureProfile || cfg.Concurrency != 1 {
+		t.Fatalf("PROFILE=1 with fixed-4: %+v, %v; want one job at a time", cfg, err)
+	}
+	if _, err := loadConfig(env(with("PROFILE", "yes"))); err == nil {
+		t.Fatal("PROFILE=yes accepted; want a startup error")
 	}
 }
 
