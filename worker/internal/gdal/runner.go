@@ -123,10 +123,6 @@ func convert(ctx context.Context, in, outDir, format, profile string, t Target, 
 	var stats Stats
 	stats.WallMS = float64(wall.Microseconds()) / 1000
 	stats.PeakDiskMB = ceilMB(peakDisk)
-	var procRSS int64
-	if stopRSS != nil {
-		procRSS, _ = stopRSS()
-	}
 	if ru, ok := sysUsage(cmd); ok {
 		stats.CPUS = measure.CPUSeconds(ru)
 		rusageRSS := measure.PeakRSSBytes(ru)
