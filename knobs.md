@@ -17,7 +17,7 @@ The baseline run (`p1-base`) sets every knob to its **Baseline** value; each lat
 | `UPLOAD_MODE` | env | `upload_mode` | api | `proxy-buffer`, `proxy-stream`, `presigned` | `proxy-buffer` | `proxy-stream`; `presigned` |
 | `QUEUE_LAYOUT` | env | `queue_layout` | api, terraform (creates queues) | `single`, `by-size` | `single` | `by-size` |
 | `SCHED_POLICY` | env | `sched_policy` | worker | `fcfs`, `small-first`, `weighted-3:1` | `fcfs` | `small-first`, `weighted-3:1` |
-| `POOL_LAYOUT` | terraform | `pool_layout` | terraform | `shared`, `split` | `shared` | `split` (small and large pools, same total budget) |
+| `POOL_LAYOUT` | terraform | `pool_layout` (pool sizes: `worker_count_small`, `worker_count_large`) | terraform | `shared`, `split` | `shared` | `split` (small and large pools, same total budget) |
 | `LEASE_MODE` | env | `lease_mode` | worker | `fixed-30s`, `fixed-12h`, `heartbeat` (60 s lease, renewed every 20 s) | `fixed-30s` | `fixed-12h`; `heartbeat` |
 | `COMMIT_MODE` | env | `commit_mode` | worker (via `jobstore`) | `blind`, `fenced` | `blind` | `fenced` |
 | `DLQ_MAX_RECEIVES` | terraform | `dlq_max_receives` | terraform | `0` (no DLQ), any integer ≥ 1 | `0` (no DLQ: poison retries forever) | `3`, then `5` once permanent errors are handled |
@@ -33,6 +33,8 @@ The baseline run (`p1-base`) sets every knob to its **Baseline** value; each lat
 | `INPUT_MODE` | env | `input_mode` | worker | `download`, `stream` (`/vsis3/` or GeoJSONSeq) | `download` | `stream` |
 | `SPLIT_K`, `SPECULATE` | env | `split_k`, `speculate` | api, worker | `SPLIT_K`: integer ≥ 1; `SPECULATE`: `off`, `on` | `1`, `off` | k chunks; backup copies of slow chunks |
 
+Queue and policy combinations: `SCHED_POLICY=fcfs` reads one queue, so it pairs with `QUEUE_LAYOUT=single` or with `POOL_LAYOUT=split` (each pool reads its own queue). `small-first` and `weighted-3:1` choose between `jobs-small` and `jobs-large`, so they need `QUEUE_LAYOUT=by-size` with `POOL_LAYOUT=shared`. Any other combination is refused by `terraform plan` and by the worker at startup.
+
 ## Not knobs
 
-These are fixed settings, not experiment variables: `AWS_REGION`, `JOBS_TABLE`, `BUCKET`, queue URLs, `ESTIMATES_PATH`, `RUN_ID`. They are wiring, set by Compose or Terraform outputs.
+These are fixed settings, not experiment variables: `AWS_REGION`, `JOBS_TABLE`, `BUCKET`, queue URLs, `ESTIMATES_PATH`, `RUN_ID`, `WORKER_POOL` (set per pool by Terraform from `POOL_LAYOUT`). They are wiring, set by Compose or Terraform outputs.

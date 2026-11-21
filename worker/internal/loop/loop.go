@@ -18,15 +18,18 @@ type SQSAPI interface {
 	ChangeMessageVisibility(ctx context.Context, in *sqs.ChangeMessageVisibilityInput, opts ...func(*sqs.Options)) (*sqs.ChangeMessageVisibilityOutput, error)
 }
 
-// Message is one received SQS message.
+// Message is one received SQS message. QueueURL is the queue it came from, so the worker
+// deletes it there when a worker reads more than one queue (SCHED_POLICY).
 type Message struct {
 	ID            string
 	Body          string
 	ReceiptHandle string
+	QueueURL      string
 }
 
 type Config struct {
 	SQS         SQSAPI
+	Policy      Policy // SCHED_POLICY: picks the queue for each receive; nil reads QueueURL only
 	QueueURL    string
 	Concurrency int   // WORKER_CONCURRENCY=fixed-<n>
 	WaitSeconds int32 // long-poll wait; 20 is SQS's maximum
@@ -48,6 +51,9 @@ func New(cfg Config) *Loop {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	if cfg.Policy == nil {
+		cfg.Policy = fcfs{cfg.QueueURL}
+	}
 	return &Loop{cfg: cfg, slots: make(chan struct{}, cfg.Concurrency)}
 }
 
@@ -66,6 +72,12 @@ func (l *Loop) Run(ctx context.Context) {
 // sqsMaxBatch is the most messages one ReceiveMessage call can return.
 const sqsMaxBatch = 10
 
+// multiQueueWaitS is the long-poll wait per queue when a worker reads two queues. It stays
+// above 0 because a 0 s short poll samples only some SQS servers and can come back empty while
+// messages exist, which would send small-first to the large queue too early; and it stays short
+// because a 20 s wait on an empty small queue would leave large jobs waiting.
+const multiQueueWaitS = 1
+
 // receiveOnce asks SQS for at most as many messages as there are free slots,
 // so the worker never holds a message, and its lease, that it cannot start.
 func (l *Loop) receiveOnce(ctx context.Context) error {
@@ -79,19 +91,33 @@ func (l *Loop) receiveOnce(ctx context.Context) error {
 		}
 		return nil
 	}
-	out, err := l.cfg.SQS.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl:            aws.String(l.cfg.QueueURL),
-		MaxNumberOfMessages: int32(min(free, sqsMaxBatch)),
-		WaitTimeSeconds:     l.cfg.WaitSeconds,
-		VisibilityTimeout:   l.cfg.VisibilityTimeoutS,
-	})
-	if err != nil {
-		return err
+	// SCHED_POLICY: try the policy's queues in order and take the first that has messages.
+	order := l.cfg.Policy.Order()
+	wait := l.cfg.WaitSeconds
+	if len(order) > 1 {
+		wait = multiQueueWaitS
+	}
+	var out *sqs.ReceiveMessageOutput
+	var queue string
+	for _, queue = range order {
+		var err error
+		out, err = l.cfg.SQS.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl:            aws.String(queue),
+			MaxNumberOfMessages: int32(min(free, sqsMaxBatch)),
+			WaitTimeSeconds:     wait,
+			VisibilityTimeout:   l.cfg.VisibilityTimeoutS,
+		})
+		if err != nil {
+			return err
+		}
+		if len(out.Messages) > 0 {
+			break
+		}
 	}
 	for _, m := range out.Messages {
 		l.slots <- struct{}{} // never blocks: only this goroutine acquires, and we asked for <= free
 		l.wg.Add(1)
-		msg := Message{ID: aws.ToString(m.MessageId), Body: aws.ToString(m.Body), ReceiptHandle: aws.ToString(m.ReceiptHandle)}
+		msg := Message{ID: aws.ToString(m.MessageId), Body: aws.ToString(m.Body), ReceiptHandle: aws.ToString(m.ReceiptHandle), QueueURL: queue}
 		go func() {
 			defer func() { <-l.slots; l.wg.Done() }()
 			l.cfg.Handle(ctx, msg)

@@ -76,6 +76,9 @@ services:
     environment:
       <<: *aws-local
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-fixed-4}
+      # by-size needs SCHED_POLICY=small-first or weighted-3:1 here (one shared local worker)
+      QUEUE_LAYOUT: ${QUEUE_LAYOUT:-single}
+      SCHED_POLICY: ${SCHED_POLICY:-fcfs}
       LEASE_MODE: ${LEASE_MODE:-fixed-30s}
       COMMIT_MODE: ${COMMIT_MODE:-blind}
       GDAL_PROFILE: ${GDAL_PROFILE:-defaults}

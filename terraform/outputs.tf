@@ -36,15 +36,18 @@ output "api_service_name" {
 }
 
 output "worker_service_name" {
-  value = module.worker.service_name
+  description = "The shared pool's service; null under POOL_LAYOUT=split (see worker_service_names)"
+  value       = try(module.worker["worker"].service_name, null)
+}
+
+output "worker_service_names" {
+  description = "Worker service by pool: worker (shared), or worker-small and worker-large (split)"
+  value       = { for k, m in module.worker : k => m.service_name }
 }
 
 output "task_definitions" {
-  description = "Recorded in each run's config.json as task_defs"
-  value = {
-    api    = module.api.task_definition_arn
-    worker = module.worker.task_definition_arn
-  }
+  description = "Recorded in each run's config.json as task_defs: api plus one entry per worker pool"
+  value       = merge({ api = module.api.task_definition_arn }, { for k, m in module.worker : k => m.task_definition_arn })
 }
 
 output "knobs" {

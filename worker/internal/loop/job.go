@@ -49,7 +49,7 @@ type QueueMessage struct {
 type Processor struct {
 	Store    jobstore.Store
 	SQS      SQSAPI
-	QueueURL string
+	QueueURL string // fallback for messages that don't record their queue
 	Objects  Objects
 	Convert  ConvertFunc
 	WorkDir  string
@@ -205,7 +205,11 @@ func (p *Processor) fail(ctx context.Context, jobID string, epoch int64, code st
 }
 
 func (p *Processor) deleteMessage(ctx context.Context, m Message, logger *slog.Logger) {
-	if _, err := p.SQS.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: aws.String(p.QueueURL), ReceiptHandle: aws.String(m.ReceiptHandle)}); err != nil {
+	queue := m.QueueURL // the queue it came from (SCHED_POLICY reads up to two)
+	if queue == "" {
+		queue = p.QueueURL
+	}
+	if _, err := p.SQS.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: aws.String(queue), ReceiptHandle: aws.String(m.ReceiptHandle)}); err != nil {
 		logger.Error("delete message failed", "error", err.Error())
 	}
 }

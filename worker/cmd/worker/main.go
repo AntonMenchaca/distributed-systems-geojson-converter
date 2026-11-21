@@ -27,7 +27,11 @@ import (
 // an unknown or not-yet-built value is a startup error, never a silent default (knobs.md).
 type config struct {
 	JobsTable    string
-	QueueURL     string
+	QueueURL     string   // the first queue read; the fallback for deleting a message
+	QueueURLs    []string // the queues this worker reads, in the order SCHED_POLICY needs
+	QueueLayout  string   // QUEUE_LAYOUT
+	SchedPolicy  string   // SCHED_POLICY
+	Pool         string   // WORKER_POOL: shared, or small / large under POOL_LAYOUT=split (wiring)
 	Bucket       string
 	WorkDir      string
 	S3PathStyle  bool
@@ -50,7 +54,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	cfg := config{
 		JobsTable:    getenv("JOBS_TABLE"),
-		QueueURL:     getenv("QUEUE_URL_JOBS"),
+		QueueLayout:  or("QUEUE_LAYOUT", "single"),
+		SchedPolicy:  or("SCHED_POLICY", "fcfs"),
+		Pool:         or("WORKER_POOL", "shared"),
 		Bucket:       getenv("BUCKET"),
 		WorkDir:      or("WORK_DIR", os.TempDir()),
 		S3PathStyle:  getenv("S3_FORCE_PATH_STYLE") == "true",
@@ -59,10 +65,25 @@ func loadConfig(getenv func(string) string) (config, error) {
 		Profile:      or("GDAL_PROFILE", "defaults"),
 		ShutdownMode: or("SHUTDOWN_MODE", "ignore"),
 	}
-	for k, v := range map[string]string{"JOBS_TABLE": cfg.JobsTable, "QUEUE_URL_JOBS": cfg.QueueURL, "BUCKET": cfg.Bucket} {
+	for k, v := range map[string]string{"JOBS_TABLE": cfg.JobsTable, "BUCKET": cfg.Bucket} {
 		if v == "" {
 			return config{}, fmt.Errorf("%s is required", k)
 		}
+	}
+	queues, err := workerQueues(cfg.QueueLayout, cfg.Pool)
+	if err != nil {
+		return config{}, err
+	}
+	for _, key := range queues {
+		url := getenv(key)
+		if url == "" {
+			return config{}, fmt.Errorf("%s is required with QUEUE_LAYOUT=%s, WORKER_POOL=%s", key, cfg.QueueLayout, cfg.Pool)
+		}
+		cfg.QueueURLs = append(cfg.QueueURLs, url)
+	}
+	cfg.QueueURL = cfg.QueueURLs[0]
+	if _, err := loop.NewPolicy(cfg.SchedPolicy, cfg.QueueURLs); err != nil {
+		return config{}, err
 	}
 
 	conc := or("WORKER_CONCURRENCY", "fixed-4")
@@ -110,6 +131,32 @@ func loadConfig(getenv func(string) string) (config, error) {
 	return cfg, nil
 }
 
+// workerQueues names the env vars of the queues a worker reads. QUEUE_LAYOUT=single: everyone
+// reads jobs. by-size: a shared pool reads jobs-small then jobs-large (SCHED_POLICY picks
+// between them); under POOL_LAYOUT=split each pool reads only its own queue.
+func workerQueues(layout, pool string) ([]string, error) {
+	switch layout {
+	case "single":
+		if pool != "shared" {
+			return nil, fmt.Errorf("WORKER_POOL=%s needs QUEUE_LAYOUT=by-size: a pool reads its own size queue", pool)
+		}
+		return []string{"QUEUE_URL_JOBS"}, nil
+	case "by-size":
+		switch pool {
+		case "shared":
+			return []string{"QUEUE_URL_JOBS_SMALL", "QUEUE_URL_JOBS_LARGE"}, nil
+		case "small":
+			return []string{"QUEUE_URL_JOBS_SMALL"}, nil
+		case "large":
+			return []string{"QUEUE_URL_JOBS_LARGE"}, nil
+		default:
+			return nil, fmt.Errorf("WORKER_POOL=%q: want shared, small or large", pool)
+		}
+	default:
+		return nil, fmt.Errorf("QUEUE_LAYOUT=%q: want single or by-size", layout)
+	}
+}
+
 // runContext is the worker's lifetime context, shared by the poll loop and every job.
 // SHUTDOWN_MODE=ignore (the baseline): SIGTERM is ignored, so the worker keeps polling and
 // its ogr2ogr children keep running until ECS sends SIGKILL after the stop timeout and the
@@ -150,10 +197,15 @@ func main() {
 		Logger:   logger,
 		Now:      time.Now,
 	}
+	policy, err := loop.NewPolicy(cfg.SchedPolicy, cfg.QueueURLs) // already validated by loadConfig
+	if err != nil {
+		log.Fatal(err)
+	}
 	logger.Info("starting worker", "concurrency", cfg.Concurrency, "lease_mode", cfg.LeaseMode,
-		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "shutdown_mode", cfg.ShutdownMode, "task_id", taskID)
+		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "shutdown_mode", cfg.ShutdownMode,
+		"queue_layout", cfg.QueueLayout, "sched_policy", cfg.SchedPolicy, "worker_pool", cfg.Pool, "task_id", taskID)
 	loop.New(loop.Config{
-		SQS: sqsClient, QueueURL: cfg.QueueURL, Concurrency: cfg.Concurrency, WaitSeconds: 20,
+		SQS: sqsClient, Policy: policy, QueueURL: cfg.QueueURL, Concurrency: cfg.Concurrency, WaitSeconds: 20,
 		VisibilityTimeoutS: cfg.VisibilityTimeoutS, Handle: proc.Handle, Logger: logger,
 	}).Run(ctx)
 }

@@ -151,9 +151,21 @@ module "api" {
   depends_on = [module.alb]
 }
 
+locals {
+  # POOL_LAYOUT: one shared pool, or a small and a large pool with the same total budget.
+  # Each pool's WORKER_POOL tells its workers which queue(s) to read.
+  pools = var.pool_layout == "split" ? {
+    "worker-small" = { pool = "small", count = var.worker_count_small }
+    "worker-large" = { pool = "large", count = var.worker_count_large }
+    } : {
+    "worker" = { pool = "shared", count = var.worker_count }
+  }
+}
+
 module "worker" {
+  for_each             = local.pools
   source               = "./modules/worker_service"
-  name                 = "${local.prefix}-worker"
+  name                 = "${local.prefix}-${each.key}"
   cluster_id           = aws_ecs_cluster.this.id
   image                = "${module.worker_ecr.repository_url}@${data.aws_ecr_image.worker.image_digest}"
   subnet_ids           = module.network.public_subnet_ids
@@ -161,13 +173,16 @@ module "worker" {
   role_arn             = data.aws_iam_role.lab_role.arn
   log_group_name       = module.worker_logs.log_group_name
   region               = var.aws_region
-  task_count           = var.worker_count
+  task_count           = each.value.count
   cpu                  = var.worker_cpu
   memory               = var.worker_memory
   ephemeral_storage_gb = var.worker_ephemeral_gb
 
   environment = merge(local.wiring, {
     WORKER_CONCURRENCY = var.worker_concurrency
+    QUEUE_LAYOUT       = var.queue_layout
+    SCHED_POLICY       = var.sched_policy
+    WORKER_POOL        = each.value.pool
     LEASE_MODE         = var.lease_mode
     COMMIT_MODE        = var.commit_mode
     GDAL_PROFILE       = var.gdal_profile
