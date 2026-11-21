@@ -15,3 +15,14 @@ ca-3m,datasets/ca-3m.geojson,919900506,3000000,Polygon,21348264,2,ef6e6da8f90cf4
 ca-all,datasets/ca.geojson,3598943044,11542912,Polygon,82185963,2,3745fdffa205fe316cdfd616e3389bcd6d6c4f0d5026a3776675c00e8637d635,https://minedbuildings.z5.web.core.windows.net/legacy/usbuildings-v2/California.geojson.zip
 ca-1m-seq,datasets/ca-1m-seq.geojsonl,305607976,1000000,Polygon,7115098,2,d71365a997bfcf559b6787c85ddc918c35fd30ef2cc5b9c2e5dc3035cdcf4754,tools/cut_ladder.py 1m-seq of https://minedbuildings.z5.web.core.windows.net/legacy/usbuildings-v2/California.geojson.zip
 ca-all-seq,datasets/ca-all-seq.geojsonl,3529685511,11542912,Polygon,82185963,2,a79cc90f208045281f63e7c91df5c1c12e963c70a398ca09f4b3e72adb84e9ea,tools/cut_ladder.py all-seq of https://minedbuildings.z5.web.core.windows.net/legacy/usbuildings-v2/California.geojson.zip
+s1,datasets/s1.geojson,314572891,1210035,Polygon,6050175,2,7bcad59be9a75c96238f3493f8862715c2548404571296743b60cfa70c5b8514,synthetic:tools/gen_geojson.py --shape S1 --seed 11
+s2,datasets/s2.geojson,314572863,3060717,Point,3060717,0,ec777bc3fe500bf0659ea1f4f7ffbb2431e7931f32e15489c4faa1e8968407d0,synthetic:tools/gen_geojson.py --shape S2 --seed 11
+s3,datasets/s3.geojson,314630832,1269,Polygon,12691269,2,2a105dea13ce16c6745f9b18f2313547d0122cdf3bc05fcc70b2c69e2c96309c,synthetic:tools/gen_geojson.py --shape S3 --seed 11
+s4,datasets/s4.geojson,314573438,347974,Polygon,1739870,52,17b51ae273ad3ade7b08805e6d4ce6c8d5ee951b5d2b3889f6ea12f8fcd2d85e,synthetic:tools/gen_geojson.py --shape S4 --seed 11
+s5,datasets/s5.geojson,314572944,922827,Polygon,4614135,2,9a8231ee8ce7a336250b5372f3056328a333111dc7786979739573fcaa1c682d,synthetic:tools/gen_geojson.py --shape S5 --seed 11
+s6,datasets/s6.geojson,314572936,526758,Polygon,2633790,3,f7519e98f7073fb3ef79e9d66801feee3e60def2607f66fd941a309f547b29df,synthetic:tools/gen_geojson.py --shape S6 --seed 11
+p1,datasets/p1.geojson,256972,,,,,dfe257e681349afdedbdf43d973b7471f4f1446cad8105ce0951956716e9ddb4,synthetic:tools/gen_geojson.py --poison P1 --seed 11
+p2,datasets/p2.geojson,197291,1000,LineString|Point|Polygon,2665,2,a0ad7dde064a7735a7f6f7c61213066054fdc66c49414c317130eb0df0e54a1f,synthetic:tools/gen_geojson.py --poison P2 --seed 11
+p3,datasets/p3.geojson,257917,1000,Polygon,5000,2,e195191ebc838abb8ebb670bfaa3e1d8bd7882ed90cb1c267c65dc9a9c4d8941,synthetic:tools/gen_geojson.py --poison P3 --seed 11
+p4,datasets/p4.geojson,259815570,1,Polygon,10485762,2,de2e10167c803680586f4f3800a69bd4ca5ef480dae059339469d00504a3bd70,synthetic:tools/gen_geojson.py --poison P4 --seed 11
+p6,datasets/p6.geojson,259857,,,,,f5811bdcf5474a4924601542606bfd2c81f36a54d0df3eecdb9d4d4e7d9892f6,synthetic:tools/gen_geojson.py --poison P6 --seed 11
