@@ -127,7 +127,7 @@ module "api" {
   source             = "./modules/ecs"
   service_name       = "${local.prefix}-api"
   cluster_id         = aws_ecs_cluster.this.id
-  image              = "${module.api_ecr.repository_url}@${docker_registry_image.api.sha256_digest}"
+  image              = "${module.api_ecr.repository_url}@${data.aws_ecr_image.api.image_digest}"
   container_port     = var.container_port
   subnet_ids         = module.network.public_subnet_ids
   security_group_ids = [module.network.api_security_group_id]
@@ -155,7 +155,7 @@ module "worker" {
   source               = "./modules/worker_service"
   name                 = "${local.prefix}-worker"
   cluster_id           = aws_ecs_cluster.this.id
-  image                = "${module.worker_ecr.repository_url}@${docker_registry_image.worker.sha256_digest}"
+  image                = "${module.worker_ecr.repository_url}@${data.aws_ecr_image.worker.image_digest}"
   subnet_ids           = module.network.public_subnet_ids
   security_group_ids   = [module.network.worker_security_group_id]
   role_arn             = data.aws_iam_role.lab_role.arn

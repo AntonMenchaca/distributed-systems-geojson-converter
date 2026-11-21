@@ -1,10 +1,10 @@
 # Build from the repo root: docker build -f worker/Dockerfile .
 # Tests that need GDAL:       docker build -f worker/Dockerfile --target test .
 #
-# GDAL_IMAGE is the WORKER_IMAGE knob's base (knobs.md). Default: GDAL 3.13.3 ubuntu-small,
-# pinned by its multi-arch index digest (linux/amd64 for Fargate, linux/arm64 for laptops).
+# GDAL_IMAGE is the WORKER_IMAGE knob's base (knobs.md). Default: GDAL 3.13.3 alpine-small
+# (gdal-slim), pinned by its multi-arch index digest (linux/amd64 for Fargate, linux/arm64 for laptops).
 # gdal-full: --build-arg GDAL_IMAGE=ghcr.io/osgeo/gdal:ubuntu-full-3.13.3@sha256:2dd0f81ef927ff4c3d4dbe4f73c029dc86d4073974c0564f8e196f6e1412e2e0
-ARG GDAL_IMAGE=ghcr.io/osgeo/gdal:ubuntu-small-3.13.3@sha256:64250faf833c06d4b21afce4c27190039ba7ab58d70f0eebc87cf77d929c0b40
+ARG GDAL_IMAGE=ghcr.io/osgeo/gdal:alpine-small-3.13.3@sha256:58e21a794e3e49c2882a078cf39625aa8d1f86188e0273f74156e9f3f3cd0253
 
 FROM golang:1.27.1 AS build
 WORKDIR /src
