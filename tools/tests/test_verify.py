@@ -28,6 +28,15 @@ def test_matching_counts_pass():
     assert report["checked"] == 1 and report["failures"] == []
 
 
+def test_catalog_rows_without_a_feature_count_are_not_expected_outputs():
+    # Poison inputs (p1, p6) can't be parsed, so the catalog has no feature count for them.
+    catalog = {**CATALOG, "p1": {"features": "", "s3_key": "datasets/p1.geojson"}}
+    report = verify.verify([job()], catalog, count_features=lambda j: 1000)
+    assert report["passed"] is True
+    report = verify.verify([job(input_key="datasets/p1.geojson")], catalog, count_features=lambda j: 0)
+    assert report["failures"] == [{"job_id": "j1", "check": "known_input", "input_key": "datasets/p1.geojson"}]
+
+
 def test_unopenable_output_fails():
     def boom(j):
         raise verify.OutputError("ogrinfo: unable to open")
