@@ -496,6 +496,7 @@ def config(args, target, started_at: str) -> dict:
         "knobs": target.knobs(),
         "task_defs": target.task_defs(),
         "started_at": started_at,
+        # The repo's file: an API started with ESTIMATES_PATH pointing elsewhere is not reflected here.
         "estimates_version": estimates.get("version"),
     }
 

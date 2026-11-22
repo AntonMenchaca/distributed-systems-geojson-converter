@@ -92,7 +92,9 @@ The script never deploys or destroys anything. Before starting it refuses (exit 
 
 - the run name is reused or doesn't follow "Runs and outputs";
 - a trace dataset isn't in the catalog, the API isn't healthy, or a queue or DLQ isn't empty;
-- on AWS: the caller isn't a Learner Lab session, the session has less than 60 minutes left (it ends 4 hours after your credentials file was written; `--session-ends HH:MM` overrides), a knob in the tfvars differs from what is deployed, a service isn't steady, or `results/costs.csv` plus this run's estimate would pass $17.
+- on AWS: the caller isn't a Learner Lab session; the session won't outlast the run's time limit (trace plus `--drain-s`, at least 60 minutes) plus 10 minutes to collect and destroy (it ends 4 hours after your credentials file was written; `--session-ends HH:MM` overrides); the tfvars sets a variable `terraform/` doesn't declare, or a knob that differs from what is deployed; a service isn't steady; or your account's rows in `results/costs.csv` include one without a price, or plus this run's estimate would pass $17.
+
+Pull `main` before an AWS run, so the budget check sees your latest `costs.csv` rows.
 
 It then writes `config.json`, samples queues, tasks and resources, replays the trace with Locust, waits until every job is terminal (or the trace length plus `--drain-s`, default 30 min), and writes `jobs.csv` and `verify.json`. The files are listed in [`docs/results-layout.md`](docs/results-layout.md).
 
