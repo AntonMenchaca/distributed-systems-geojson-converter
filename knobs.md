@@ -35,4 +35,4 @@ The baseline run (`p1-base`) sets every knob to its **Baseline** value; each lat
 
 ## Not knobs
 
-These are fixed settings, not experiment variables: `AWS_REGION`, `JOBS_TABLE`, `BUCKET`, queue URLs, `ESTIMATES_PATH`, `RUN_ID`. They are wiring, set by Compose or Terraform outputs.
+These are fixed settings, not experiment variables: `AWS_REGION`, `JOBS_TABLE`, `BUCKET`, queue URLs, `ESTIMATES_PATH`, `RUN_ID`, `CHAOS_ENABLED`. They are wiring, set by Compose or Terraform outputs. `CHAOS_ENABLED` is `0` or `1` and only arms the per-job flags already in the trace (`crash_at`, `pause_s`, `slow`). It is not a knob: a run does not flip it as the one change under test.
