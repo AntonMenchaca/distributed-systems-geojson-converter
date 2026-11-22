@@ -29,7 +29,7 @@ outputs/<run>/<job_id>/<run>_<dataset>_<first 8 characters of job_id>.gpkg | .sh
 | File | Written by | Contents |
 |------|------------|----------|
 | `config.json` | `scripts/run.sh` | `run_id, phase, owner, account_prefix, git_sha, gdal_version, trace_file, seed, knobs{...}, task_defs{...}, started_at`, plus the `estimates.json` `version` |
-| `jobs.csv` | `tools/collect.py` | one row per job record (DynamoDB export by the `run_id` index) |
+| `jobs.csv` | `tools/collect.py` | one row per job record (DynamoDB export by the `run_id` index), plus `attempt_count`, `last_outcome` and the latency metrics `queue_wait_s`, `processing_s`, `turnaround_s`, `slowdown` (definitions in `collect.py`) |
 | `queues.csv` | sampler | SQS visible / in-flight per queue over time |
 | `tasks.csv` | sampler | ECS task start and stop times per service |
 | `events.csv` | `run.sh`, chaos tools | timestamped run events (start, kill, drain, end) |

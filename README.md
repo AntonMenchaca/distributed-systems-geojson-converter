@@ -71,6 +71,33 @@ Each of us deploys the full stack in our own AWS Academy Learner Lab account and
 
 Knobs change only through Terraform variables, e.g. `-var lease_mode=fixed-12h`. A value whose code hasn't been built yet fails at plan, naming the step that builds it.
 
+## Running an experiment
+
+Every result comes from `scripts/run.sh`, which writes one results folder per run. **Never hand-edit a results folder**; a rerun gets a new run name.
+
+```sh
+.venv/bin/pip install -r tools/requirements.txt -r locust/requirements.txt   # once
+
+# local, against `docker compose up --build`: writes results/<run>/
+scripts/run.sh local local-smoke traces/sample.csv local
+
+# AWS, against the stack you deployed with that tfvars file: writes results/<phase>/<run>/
+terraform -chdir=terraform apply -var-file=p1-base.tfvars
+scripts/run.sh p1 p1-base-anton-s11 traces/fail-s11.csv terraform/p1-base.tfvars
+```
+
+On Windows without WSL, run the same arguments with `.venv\Scripts\python tools\run.py ...`.
+
+The script never deploys or destroys anything. Before starting it refuses (exit 2) when:
+
+- the run name is reused or doesn't follow "Runs and outputs";
+- a trace dataset isn't in the catalog, the API isn't healthy, or a queue or DLQ isn't empty;
+- on AWS: the caller isn't a Learner Lab session, the session has less than 60 minutes left (it ends 4 hours after your credentials file was written; `--session-ends HH:MM` overrides), a knob in the tfvars differs from what is deployed, a service isn't steady, or `results/costs.csv` plus this run's estimate would pass $17.
+
+It then writes `config.json`, samples queues, tasks and resources, replays the trace with Locust, waits until every job is terminal (or the trace length plus `--drain-s`, default 30 min), and writes `jobs.csv` and `verify.json`. The files are listed in [`docs/results-layout.md`](docs/results-layout.md).
+
+Exit status: 0 verified, 1 verify failed, 2 refused, 3 incomplete (the folder has an `INCOMPLETE` file saying why). On AWS, post the start and the teardown in `#runs`, and `terraform destroy` in the same sitting.
+
 ## Project structure
 
 | Path | What | Owner |
