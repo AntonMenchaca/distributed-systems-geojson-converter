@@ -18,8 +18,8 @@ In order:
      dataset in the trace is in the catalog, the API is healthy and every queue and DLQ is
      empty. On AWS also: the caller is a Learner Lab role, the lab session has at least 60
      minutes left, the deployed knobs match the tfvars, every service has running = desired
-     (and any autoscaler is at its minimum), and costs.csv plus this run's estimate stays
-     under the budget.
+     (and any autoscaler is at its minimum), and this account's priced costs.csv rows plus
+     this run's estimate stay under the budget.
   2. config.json: knobs, task definitions, git SHA, GDAL and estimates.json versions, seed.
   3. Start the samplers: queues.csv, tasks.csv and, locally, resources.csv.
   4. Replay the trace with Locust (open loop): locust_*.csv.
@@ -57,7 +57,7 @@ TERMINAL = {"SUCCEEDED", "FAILED", "DEAD_LETTERED", "REJECTED"}
 
 SESSION_HOURS = 4          # a Learner Lab session's length
 MIN_SESSION_LEFT_MIN = 60  # a run needs at least this much session left to finish and collect
-BUDGET_USD = 17.0          # the plan's cap on costs.csv plus the next run's estimate
+BUDGET_USD = 17.0          # per account: its costs.csv rows plus the next run's estimate
 
 # us-east-1 on-demand prices (USD per hour).
 FARGATE_VCPU_HR = 0.04048
@@ -223,16 +223,20 @@ def estimate_usd(vcpu: float, gb: float, hours: float) -> float:
     return hours * (vcpu * FARGATE_VCPU_HR + gb * FARGATE_GB_HR + ALB_HR)
 
 
-def spent_usd(costs: Path) -> float:
+def spent_usd(costs: Path, prefix: str) -> tuple[float, list[str]]:
+    """What this account's earlier runs cost, and a problem for each of its rows with no price."""
     if not costs.exists():
-        return 0.0
+        return 0.0, []
     with costs.open(newline="") as f:
-        return sum(float(r["usd"] or 0) for r in csv.DictReader(f))
+        rows = [r for r in csv.DictReader(f) if r["account_prefix"] == prefix]
+    unpriced = [r["run_id"] for r in rows if not r["usd"].strip()]
+    problems = [f"costs.csv row {run_id} has no usd: fill in its price before the next run" for run_id in unpriced]
+    return sum(float(r["usd"]) for r in rows if r["usd"].strip()), problems
 
 
 def budget_problems(spent: float, estimate: float) -> list[str]:
     if spent + estimate >= BUDGET_USD:
-        return [f"costs.csv has ${spent:.2f}; this run adds up to ${estimate:.2f}, past the ${BUDGET_USD:.0f} budget"]
+        return [f"this account's runs in costs.csv cost ${spent:.2f}; this run adds up to ${estimate:.2f}, past the ${BUDGET_USD:.0f} budget"]
     return []
 
 
@@ -364,7 +368,8 @@ class AWS:
             vcpu += s["desiredCount"] * int(td["cpu"]) / 1024
             gb += s["desiredCount"] * int(td["memory"]) / 1024
         self.estimate = estimate_usd(vcpu, gb, hours=args.time_limit_s / 3600)
-        problems += budget_problems(spent_usd(REPO / "results/costs.csv"), self.estimate)
+        spent, unpriced = spent_usd(REPO / "results/costs.csv", self.prefix)
+        problems += unpriced + budget_problems(spent, self.estimate)
         return problems
 
     def knobs(self) -> dict:

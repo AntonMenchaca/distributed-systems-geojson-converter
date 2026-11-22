@@ -108,16 +108,32 @@ def test_estimate_prices_vcpu_and_memory_hours_plus_the_load_balancer():
     assert usd == pytest.approx(0.5 * (4.5 * run.FARGATE_VCPU_HR + 17 * run.FARGATE_GB_HR + run.ALB_HR))
 
 
-def test_budget_counts_every_earlier_run(tmp_path):
-    costs = tmp_path / "costs.csv"
-    with costs.open("w", newline="") as f:
+def write_costs(path, rows):
+    with path.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["run_id", "owner", "account_prefix", "started_at", "ended_at", "task_hours", "vcpu_hours", "gb_hours", "usd"])
-        w.writerow(["a", "anton", "gc-anton", "", "", "", "", "", "16.50"])
-    assert run.spent_usd(costs) == pytest.approx(16.5)
+        for run_id, prefix, usd in rows:
+            w.writerow([run_id, prefix.removeprefix("gc-"), prefix, "", "", "", "", "", usd])
+
+
+def test_budget_counts_only_this_accounts_runs(tmp_path):
+    # Each Learner Lab account has its own credit, so another member's runs don't spend it.
+    costs = tmp_path / "costs.csv"
+    write_costs(costs, [("a", "gc-anton", "16.50"), ("b", "gc-ikwo", "5.00")])
+    assert run.spent_usd(costs, "gc-anton") == (pytest.approx(16.5), [])
+    assert run.spent_usd(costs, "gc-samuel") == (0.0, [])
     assert run.budget_problems(spent=16.5, estimate=0.4) == []
     assert run.budget_problems(spent=16.5, estimate=0.6)
-    assert run.spent_usd(tmp_path / "missing.csv") == 0.0
+    assert run.spent_usd(tmp_path / "missing.csv", "gc-anton") == (0.0, [])
+
+
+def test_a_blank_price_for_this_account_refuses(tmp_path):
+    # A blank usd is an unpriced run, not a free one.
+    costs = tmp_path / "costs.csv"
+    write_costs(costs, [("a", "gc-anton", "1.00"), ("p1-x-anton-s1", "gc-anton", ""), ("b", "gc-ikwo", "")])
+    spent, problems = run.spent_usd(costs, "gc-anton")
+    assert spent == pytest.approx(1.0)
+    assert len(problems) == 1 and "p1-x-anton-s1" in problems[0]
 
 
 # --- trace --------------------------------------------------------------------------------
