@@ -29,8 +29,8 @@ In order:
 events.csv records each step's time; the task killer appends its kills to the same file.
 
 Exit status: 0 the run finished and verified; 1 verify failed; 2 refused at pre-flight;
-3 incomplete (time limit, collection failure or interrupted; the folder has an INCOMPLETE file
-saying why).
+3 incomplete (time limit, fewer jobs than trace rows, collection failure or interrupted; the
+folder has an INCOMPLETE file saying why).
 """
 from __future__ import annotations
 
@@ -254,6 +254,15 @@ def spent_usd(costs: Path, prefix: str) -> tuple[float, list[str]]:
 def budget_problems(spent: float, estimate: float) -> list[str]:
     if spent + estimate >= BUDGET_USD:
         return [f"this account's runs in costs.csv cost ${spent:.2f}; this run adds up to ${estimate:.2f}, past the ${BUDGET_USD:.0f} budget"]
+    return []
+
+
+# --- submission ---------------------------------------------------------------------------
+
+def submission_problems(trace_rows: int, jobs_found: int) -> list[str]:
+    """A run whose jobs don't cover its trace is incomplete, even if those jobs verify."""
+    if jobs_found < trace_rows:
+        return [f"{jobs_found} of {trace_rows} trace rows submitted"]
     return []
 
 
@@ -566,6 +575,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"run: {dict(counts)}", flush=True)
             if counts and not waiting:
                 event(events, "all_terminal")
+                reason = next(iter(submission_problems(len(trace_rows), sum(counts.values()))), None)
                 break
             if time.monotonic() >= deadline:
                 reason = f"time limit: {waiting} jobs not terminal {args.drain_s:.0f} s after the trace ended"

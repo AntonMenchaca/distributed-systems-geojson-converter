@@ -182,3 +182,13 @@ def test_events_file_uses_the_chaos_killer_columns(tmp_path):
 def test_gdal_version_is_the_number_only():
     assert run.gdal_version_of('GDAL 3.13.3 "Iowa City", released 2026/09/01') == "3.13.3"
     assert run.gdal_version_of("") == "unknown"
+
+
+# --- submission ---------------------------------------------------------------------------
+
+def test_fewer_jobs_than_trace_rows_is_incomplete():
+    # Locust stops at its run time and gives up on a row after its last 429 retry; the jobs
+    # that did get in can still verify, so the shortfall has to fail the run on its own.
+    assert run.submission_problems(trace_rows=30, jobs_found=30) == []
+    problems = run.submission_problems(trace_rows=30, jobs_found=27)
+    assert problems and "27 of 30" in problems[0]
