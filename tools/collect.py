@@ -11,6 +11,9 @@ Latency comes only from the job record's server-side timestamps, never from Locu
     turnaround_s  committed_at - submitted_at      (what the client waited end to end)
     slowdown      turnaround_s / processing_s
 A metric whose timestamps are missing (the job never started or never committed) is blank.
+
+finished_attempts counts attempts that converted to the end: SUCCEEDED, or STALE when a fenced
+commit refused them. More than one means the job was converted twice (a duplicate).
 """
 from __future__ import annotations
 
@@ -33,7 +36,8 @@ RECORD_FIELDS = [
     "output_bytes", "output_sha256", "feature_count", "error_code",
 ]
 METRICS = ["queue_wait_s", "processing_s", "turnaround_s", "slowdown"]
-COLUMNS = RECORD_FIELDS + ["attempt_count", "last_outcome"] + METRICS
+FINISHED = {"SUCCEEDED", "STALE"}
+COLUMNS = RECORD_FIELDS + ["attempt_count", "finished_attempts", "last_outcome"] + METRICS
 
 
 def parse_ts(value) -> datetime | None:
@@ -75,6 +79,7 @@ def row(job: dict) -> dict:
     last = attempts[-1] if attempts else {}
     out = {f: job.get(f) for f in RECORD_FIELDS}
     out["attempt_count"] = len(attempts)
+    out["finished_attempts"] = sum(1 for a in attempts if isinstance(a, dict) and a.get("outcome") in FINISHED)
     out["last_outcome"] = last.get("outcome") if isinstance(last, dict) else None
     out.update(metrics(job))
     return {k: cell(out[k]) for k in COLUMNS}

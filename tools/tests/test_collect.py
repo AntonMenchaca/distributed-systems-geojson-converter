@@ -98,3 +98,14 @@ def test_columns_are_stable_whatever_fields_a_record_has():
     # Analysis reads columns by name; a run whose jobs all lack a field still has the column.
     _, rows = export([succeeded("a1")], "local-a")
     assert list(rows[0].keys()) == collect.COLUMNS
+
+
+def test_attempts_that_converted_to_the_end_are_counted():
+    # A duplicate is a job converted more than once: under blind commits both attempts end
+    # SUCCEEDED; under fenced commits the loser ends STALE. A lost or failed attempt is not one.
+    item = succeeded("a1")
+    extra = [ddb_item(epoch=2, task_id="t2", started_at="2026-11-21T10:00:05.000Z", outcome=o)
+             for o in ("STALE", "SUCCEEDED", "LOST", "FAILED")]
+    item["attempts"] = {"L": item["attempts"]["L"] + [{"M": a} for a in extra]}
+    _, rows = export([item], "local-a")
+    assert rows[0]["finished_attempts"] == "3"
