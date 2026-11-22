@@ -88,6 +88,8 @@ scripts/run.sh p1 p1-base-anton-s11 traces/fail-s11.csv terraform/p1-base.tfvars
 
 On Windows without WSL, run the same arguments with `.venv\Scripts\python tools\run.py ...`.
 
+Tfvars files stay on your machine (git ignores `*.tfvars`). To repeat a run, write one from the `knobs` in its `config.json`.
+
 The script never deploys or destroys anything. Before starting it refuses (exit 2) when:
 
 - the run name is reused or doesn't follow "Runs and outputs";

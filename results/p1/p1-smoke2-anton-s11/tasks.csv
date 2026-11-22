@@ -1,0 +1,3 @@
+task_id,service,last_status,started_at,stopped_at,stop_code,stopped_reason
+arn:aws:ecs:us-east-1:148831131433:task/gc-anton-cluster/b2d179772d7144e9a0684f3a7bac70b6,gc-anton-api,RUNNING,2026-11-22T16:48:14.600Z,,,
+arn:aws:ecs:us-east-1:148831131433:task/gc-anton-cluster/214f1b95a1b34fc4904d5b5fd3e52ec2,gc-anton-worker,RUNNING,2026-11-22T16:40:26.688Z,,,
