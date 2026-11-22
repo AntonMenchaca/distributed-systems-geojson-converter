@@ -24,7 +24,7 @@ In order:
   3. Start the samplers: queues.csv, tasks.csv and, locally, resources.csv.
   4. Replay the trace with Locust (open loop): locust_*.csv.
   5. Wait until every job is terminal, or until the trace's length plus --drain-s.
-  6. collect.py (jobs.csv), resources.csv from Container Insights on AWS, then verify.py.
+  6. collect.py (jobs.csv, attempts.csv), resources.csv from Container Insights on AWS, then verify.py.
   7. cost.py, when it exists: the costs.csv row and a check for stacks left running.
 events.csv records each step's time; the task killer appends its kills to the same file.
 
@@ -584,6 +584,7 @@ def main(argv: list[str] | None = None) -> int:
     subprocess.run([sys.executable, "tools/watch_ecs.py", *target.tasks_args(folder), "--once"], cwd=REPO, env=target.env)
     try:
         if subprocess.run([sys.executable, "tools/collect.py", "--run-id", args.run, "--out", str(folder / "jobs.csv"),
+                           "--attempts-out", str(folder / "attempts.csv"),
                            "--table", target.table], cwd=REPO, env=target.env).returncode != 0:
             raise RuntimeError("collect.py failed")
         target.after_run(folder, started_at, ended_at)

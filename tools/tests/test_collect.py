@@ -98,3 +98,23 @@ def test_columns_are_stable_whatever_fields_a_record_has():
     # Analysis reads columns by name; a run whose jobs all lack a field still has the column.
     _, rows = export([succeeded("a1")], "local-a")
     assert list(rows[0].keys()) == collect.COLUMNS
+
+
+def test_each_attempt_is_a_row():
+    # The table is destroyed with the stack; lease and crash results need every attempt kept.
+    job = succeeded("a1")
+    job["attempts"] = {"L": [
+        {"M": ddb_item(epoch=1, task_id="t1", started_at="2026-11-21T10:00:01.000Z",
+                       ended_at="2026-11-21T10:00:31.000Z", outcome="LOST")},
+        {"M": ddb_item(epoch=2, task_id="t2", started_at="2026-11-21T10:00:32.000Z",
+                       ended_at="2026-11-21T10:00:40.000Z", outcome="SUCCEEDED", peak_rss_mb=180.5)},
+    ]}
+    jobs_buf, attempts_buf = io.StringIO(), io.StringIO()
+    assert collect.export(FakeTable([job]), "jobs", "local-a", jobs_buf, attempts_out=attempts_buf) == 1
+    assert len(list(csv.DictReader(io.StringIO(jobs_buf.getvalue())))) == 1
+    attempts = list(csv.DictReader(io.StringIO(attempts_buf.getvalue())))
+    assert [(a["run_id"], a["job_id"], a["epoch"], a["task_id"], a["outcome"]) for a in attempts] == [
+        ("local-a", "a1", "1", "t1", "LOST"), ("local-a", "a1", "2", "t2", "SUCCEEDED")]
+    assert attempts[0]["ended_at"] == "2026-11-21T10:00:31.000Z" and attempts[0]["peak_rss_mb"] == ""
+    assert attempts[1]["peak_rss_mb"] == "180.5"
+    assert list(attempts[0]) == collect.ATTEMPT_COLUMNS
