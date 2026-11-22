@@ -69,7 +69,18 @@ func Convert(ctx context.Context, in, outDir, format, profile string, t Target) 
 	}
 	out := OutputPath(outDir, format, t)
 	args := append([]string{"-f", f.driver, out, in, "-nln", t.Layer}, extra...)
+	// -progress only when a caller asked for it (chaos crash_at / slow). The text goes to
+	// stdout, which Convert otherwise leaves unused, so a normal job's command is unchanged.
+	// Stdout is set only when that writer exists: a nil pointer in the io.Writer interface
+	// is not a nil interface, and os/exec would call Write on it.
+	fn := progressFrom(ctx)
+	if fn != nil {
+		args = append(args, "-progress")
+	}
 	cmd := exec.CommandContext(ctx, "ogr2ogr", args...)
+	if fn != nil {
+		cmd.Stdout = newProgressWriter(fn)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
