@@ -81,10 +81,15 @@ services:
       GDAL_PROFILE: ${GDAL_PROFILE:-defaults}
       # ignore: SIGTERM does nothing, so `docker compose stop` kills the worker mid-job after 10 s
       SHUTDOWN_MODE: ${SHUTDOWN_MODE:-ignore}
+      # Off unless 1. Not a knob: the trace carries the per-job flags (crash_at, pause_s, slow).
+      CHAOS_ENABLED: ${CHAOS_ENABLED:-0}
       WORK_DIR: /tmp/jobs
     depends_on:
       localstack:
         condition: service_healthy
+    # A crash_at job exits 137. An ECS service replaces that task; this does the same
+    # locally. `docker compose stop` still stays stopped.
+    restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:v3.15.0
