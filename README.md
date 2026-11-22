@@ -88,6 +88,8 @@ scripts/run.sh p1 p1-base-anton-s11 traces/fail-s11.csv terraform/p1-base.tfvars
 
 On Windows without WSL, run the same arguments with `.venv\Scripts\python tools\run.py ...`.
 
+Tfvars files stay on your machine (git ignores `*.tfvars`). To repeat a run, write one from the `knobs` in its `config.json`.
+
 The script never deploys or destroys anything. Before starting it refuses (exit 2) when:
 
 - the run name is reused or doesn't follow "Runs and outputs";
@@ -99,6 +101,17 @@ Pull `main` before an AWS run, so the budget check sees your latest `costs.csv` 
 It then writes `config.json`, samples queues, tasks and resources, replays the trace with Locust, waits until every job is terminal (or the trace length plus `--drain-s`, default 30 min), and writes `jobs.csv` and `verify.json`. The files are listed in [`docs/results-layout.md`](docs/results-layout.md).
 
 Exit status: 0 verified, 1 verify failed, 2 refused, 3 incomplete (the folder has an `INCOMPLETE` file saying why). On AWS, post the start and the teardown in `#runs`, and `terraform destroy` in the same sitting.
+
+On AWS the script ends with `tools/cost.py`: it appends the run's row to `results/costs.csv` and lists anything still running under your prefix. A row runs from the end of your previous row (or your stack's first task) to the run's end, so time after your last run isn't counted: destroy soon after it. After destroying, `python tools/cost.py --open-stacks --prefix gc-<you>` should print `nothing running`.
+
+## Analyzing runs
+
+```sh
+.venv/bin/python tools/analyze.py results/p1/p1-base-anton-s11 results/p1/p1-base-anton-s22
+.venv/bin/python tools/analyze.py --compare results/p1/p1-base-anton-s11 results/p9/p9-best-anton-s11
+```
+
+Each run becomes one Markdown row of the master table (jobs, failures, duplicates, small and large p95/p99 turnaround, GB/h, $/GB, incorrect outputs, healthy jobs failed), and its turnaround CDF is saved to `results/figures/<run>.png`. `--compare` adds the change, and refuses (exit 2) when the two runs come from different accounts or seeds. The column definitions are in `tools/analyze.py`.
 
 ## Project structure
 

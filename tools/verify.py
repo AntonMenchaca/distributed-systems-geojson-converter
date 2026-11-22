@@ -39,7 +39,8 @@ class OutputError(Exception):
 
 def verify(jobs: list[dict], catalog: dict[str, dict], count_features: Callable[[dict], int],
            object_epoch: Callable[[dict], str | None] | None = None) -> dict:
-    expected_by_key = {d["s3_key"]: int(d["features"]) for d in catalog.values()}
+    # Poison inputs have no feature count: they never convert, so a SUCCEEDED job on one fails.
+    expected_by_key = {d["s3_key"]: int(d["features"]) for d in catalog.values() if str(d["features"]).strip()}
     failures: list[dict] = []
     checked = 0
     for j in jobs:
