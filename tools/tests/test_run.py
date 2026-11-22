@@ -41,14 +41,25 @@ def test_session_end_is_four_hours_after_the_credentials_were_written():
     assert run.session_end(credentials_mtime=NOW - timedelta(hours=3), override=None, now=NOW) == NOW + timedelta(hours=1)
 
 
-def test_session_end_override_is_a_local_clock_time_today():
+def test_session_end_override_is_the_next_time_the_clock_shows_it():
     assert run.session_end(credentials_mtime=None, override="13:30", now=NOW) == NOW.replace(hour=13, minute=30)
+    # At 23:30, 01:00 is tomorrow: the session still has 90 minutes.
+    late = NOW.replace(hour=23, minute=30)
+    assert run.session_end(credentials_mtime=None, override="01:00", now=late) == late.replace(hour=1, minute=0) + timedelta(days=1)
 
 
-def test_less_than_an_hour_left_refuses():
-    assert run.session_problems(NOW + timedelta(minutes=59), now=NOW)
-    assert run.session_problems(NOW + timedelta(minutes=61), now=NOW) == []
-    assert run.session_problems(None, now=NOW)  # no credentials file and no --session-ends
+def test_less_than_an_hour_and_ten_minutes_left_refuses():
+    # A short run still needs an hour, plus time to collect and destroy.
+    short = 600
+    assert run.session_problems(NOW + timedelta(minutes=69), now=NOW, time_limit_s=short)
+    assert run.session_problems(NOW + timedelta(minutes=71), now=NOW, time_limit_s=short) == []
+    assert run.session_problems(None, now=NOW, time_limit_s=short)  # no credentials file and no --session-ends
+
+
+def test_session_shorter_than_the_runs_limit_refuses():
+    # Trace plus drain is 75 minutes: 61 minutes left is not enough.
+    assert run.session_problems(NOW + timedelta(minutes=61), now=NOW, time_limit_s=75 * 60)
+    assert run.session_problems(NOW + timedelta(minutes=86), now=NOW, time_limit_s=75 * 60) == []
 
 
 # --- knobs --------------------------------------------------------------------------------

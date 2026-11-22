@@ -16,10 +16,10 @@ results/<phase>/<run>/. This script never deploys or destroys anything.
 In order:
   1. Pre-flight. Refuses to start (exit 2) unless the run name is new and well formed, every
      dataset in the trace is in the catalog, the API is healthy and every queue and DLQ is
-     empty. On AWS also: the caller is a Learner Lab role, the lab session has at least 60
-     minutes left, the deployed knobs match the tfvars, every service has running = desired
-     (and any autoscaler is at its minimum), and this account's priced costs.csv rows plus
-     this run's estimate stay under the budget.
+     empty. On AWS also: the caller is a Learner Lab role, the lab session outlasts the
+     run's time limit plus teardown, the deployed knobs match the tfvars, every service has
+     running = desired (and any autoscaler is at its minimum), and this account's priced
+     costs.csv rows plus this run's estimate stay under the budget.
   2. config.json: knobs, task definitions, git SHA, GDAL and estimates.json versions, seed.
   3. Start the samplers: queues.csv, tasks.csv and, locally, resources.csv.
   4. Replay the trace with Locust (open loop): locust_*.csv.
@@ -56,7 +56,8 @@ AWS_PHASE = re.compile(r"^p[1-9]$")
 TERMINAL = {"SUCCEEDED", "FAILED", "DEAD_LETTERED", "REJECTED"}
 
 SESSION_HOURS = 4          # a Learner Lab session's length
-MIN_SESSION_LEFT_MIN = 60  # a run needs at least this much session left to finish and collect
+MIN_SESSION_LEFT_MIN = 60  # the least session a run needs, however short its trace
+TEARDOWN_MIN = 10          # on top of the run: collect, then terraform destroy
 BUDGET_USD = 17.0          # per account: its costs.csv rows plus the next run's estimate
 
 # us-east-1 on-demand prices (USD per hour).
@@ -133,18 +134,22 @@ def session_end(credentials_mtime: datetime | None, override: str | None, now: d
     --session-ends gives the time shown in the lab."""
     if override:
         hh, mm = (int(x) for x in override.split(":"))
-        return now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        end = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        # The lab shows a clock time: one at or before now is tomorrow's.
+        return end if end > now else end + timedelta(days=1)
     if credentials_mtime is None:
         return None
     return credentials_mtime + timedelta(hours=SESSION_HOURS)
 
 
-def session_problems(end: datetime | None, now: datetime) -> list[str]:
+def session_problems(end: datetime | None, now: datetime, time_limit_s: float) -> list[str]:
+    """The session must outlast the run's time limit (trace plus drain) and the teardown."""
     if end is None:
         return ["cannot tell when the lab session ends: no credentials file; pass --session-ends HH:MM"]
     left = (end - now).total_seconds() / 60
-    if left < MIN_SESSION_LEFT_MIN:
-        return [f"the lab session ends at {end:%H:%M} ({left:.0f} min left); a run needs {MIN_SESSION_LEFT_MIN}. "
+    needed = max(time_limit_s / 60, MIN_SESSION_LEFT_MIN) + TEARDOWN_MIN
+    if left < needed:
+        return [f"the lab session ends at {end:%H:%M} ({left:.0f} min left); this run needs {needed:.0f}. "
                 "Restart the session and refresh the credentials, or pass --session-ends if this is wrong"]
     return []
 
@@ -352,7 +357,8 @@ class AWS:
         arn = boto3.client("sts").get_caller_identity()["Arn"]
         if "assumed-role/voclabs/" not in arn:
             problems.append(f"caller {arn} is not a Learner Lab session (assumed-role/voclabs/); check AWS_PROFILE")
-        problems += session_problems(session_end(credentials_mtime(), args.session_ends, datetime.now()), datetime.now())
+        now = datetime.now()
+        problems += session_problems(session_end(credentials_mtime(), args.session_ends, now), now, args.time_limit_s)
         problems += knob_problems(parse_tfvars(self.tfvars_path), self.out["knobs"], self.prefix)
 
         ecs = boto3.client("ecs")
