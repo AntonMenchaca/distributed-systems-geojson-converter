@@ -19,7 +19,7 @@ func TestChaosDisabledByDefault(t *testing.T) {
 	for _, v := range []string{"", "0", "true", "yes"} {
 		t.Run(fmt.Sprintf("CHAOS_ENABLED=%q", v), func(t *testing.T) {
 			t.Setenv("CHAOS_ENABLED", v)
-			g, err := New(os.Getenv, json.RawMessage(`{"crash_at":0.5,"pause_s":30,"slow":4}`))
+			g, err := New(os.Getenv, json.RawMessage(`{"crash_at":0.5,"pause_s":30,"slow":4}`), 1)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -67,9 +67,48 @@ func TestCrashAtHalfKillsMidConvert(t *testing.T) {
 	}
 }
 
+// crash_at rides on the queue message, which SQS redelivers unchanged. The second claim
+// is epoch 2, not a second receive count. Same flag, CHAOS_ENABLED=1: convert finishes.
+func TestCrashAtHalfLetsLaterEpochFinish(t *testing.T) {
+	if os.Getenv("CHAOS_CRASH_CHILD") == "1" {
+		laterEpochChild(t)
+		return
+	}
+
+	marker := filepath.Join(t.TempDir(), "progress")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestCrashAtHalfLetsLaterEpochFinish$", "-test.count=1")
+	cmd.Env = append(withoutChaosEnv(os.Environ()), "CHAOS_CRASH_CHILD=1", "CHAOS_ENABLED=1", "CHAOS_MARKER="+marker)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("epoch 2 child exit %v, want success (crash_at kills only epoch 1)\n%s", err, out)
+	}
+	got := strings.Fields(string(mustRead(t, marker)))
+	want := []string{"0", "0.25", "0.5", "0.75", "1"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("progress %v, want %v (epoch 2 converts through crash_at)", got, want)
+	}
+}
+
+func laterEpochChild(t *testing.T) {
+	t.Helper()
+	g, err := New(os.Getenv, json.RawMessage(`{"crash_at":0.5}`), 2)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	marker := os.Getenv("CHAOS_MARKER")
+	for _, frac := range []float64{0, 0.25, 0.5, 0.75, 1} {
+		if err := appendLine(marker, fmt.Sprintf("%g", frac)); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		g.OnProgress(frac)
+	}
+}
+
 func crashChild(t *testing.T) {
 	t.Helper()
-	g, err := New(os.Getenv, json.RawMessage(`{"crash_at":0.5}`))
+	g, err := New(os.Getenv, json.RawMessage(`{"crash_at":0.5}`), 1)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -90,7 +129,7 @@ func crashChild(t *testing.T) {
 // loop (not this step) calls Beat, so a pause can outlast a lease and a slow job cannot.
 func TestPauseStopsHeartbeats(t *testing.T) {
 	t.Setenv("CHAOS_ENABLED", "1")
-	g, err := New(os.Getenv, json.RawMessage(`{"pause_s":90}`))
+	g, err := New(os.Getenv, json.RawMessage(`{"pause_s":90}`), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,11 +168,11 @@ func TestPauseStopsHeartbeats(t *testing.T) {
 // true is the flag form of factor 2.
 func TestSlowStretchesConvertWithoutStoppingHeartbeats(t *testing.T) {
 	t.Setenv("CHAOS_ENABLED", "1")
-	gTrue, err := New(os.Getenv, json.RawMessage(`{"slow":true}`))
+	gTrue, err := New(os.Getenv, json.RawMessage(`{"slow":true}`), 1)
 	if err != nil || gTrue.flags.Slow != 2 {
 		t.Fatalf("slow true = %v, err %v; want factor 2", gTrue.flags.Slow, err)
 	}
-	g, err := New(os.Getenv, json.RawMessage(`{"slow":2}`))
+	g, err := New(os.Getenv, json.RawMessage(`{"slow":2}`), 1)
 	if err != nil {
 		t.Fatal(err)
 	}

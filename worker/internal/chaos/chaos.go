@@ -3,8 +3,11 @@
 // CHAOS_ENABLED=1, so one trace is either a normal run or a repeatable failure run.
 //
 //	crash_at  fraction of the conversion, in (0, 1]. At that progress the process exits
-//	          137, the conventional status of SIGKILL. The attempt stays RUNNING because
-//	          a dead process cannot record a failure.
+//	          137, the conventional status of SIGKILL, on the first claim only. First
+//	          means epoch == 1, the epoch Claim returns for that claim. A redelivery
+//	          claims epoch 2 and converts through. It does not mean the SQS receive
+//	          count. The flag stays on the message. The killed attempt stays RUNNING
+//	          because a dead process cannot record a failure.
 //	pause_s   seconds the job freezes. Heartbeats are not sent during the freeze, so a
 //	          pause longer than the lease expires it.
 //	slow      factor the conversion is stretched by (2, or true, means twice as long).
@@ -68,19 +71,21 @@ func (f flags) validate() error {
 }
 
 // Guard is one job's faults. A disabled guard ignores its flags, whatever they say.
+// epoch is the claim this guard was built for: 1 is the first claim, 2 the redelivery.
 type Guard struct {
 	enabled bool
+	epoch   int64
 	flags   flags
 	paused  atomic.Bool
 	last    time.Time
 	sleep   func(context.Context, time.Duration) error
 }
 
-// New reads raw, the queue message's chaos object. When chaos is not armed, raw is
-// ignored, including when it is malformed: a normal run must not fail a job over a flag
-// it is not going to apply.
-func New(getenv func(string) string, raw json.RawMessage) (*Guard, error) {
-	g := &Guard{enabled: Enabled(getenv), sleep: defaultSleep}
+// New reads raw, the queue message's chaos object, for the attempt Claim returned as
+// epoch. When chaos is not armed, raw is ignored, including when it is malformed: a
+// normal run must not fail a job over a flag it is not going to apply.
+func New(getenv func(string) string, raw json.RawMessage, epoch int64) (*Guard, error) {
+	g := &Guard{enabled: Enabled(getenv), epoch: epoch, sleep: defaultSleep}
 	if !g.enabled || len(raw) == 0 || string(raw) == "null" {
 		return g, nil
 	}
@@ -126,7 +131,8 @@ func (g *Guard) Beat(ctx context.Context, send func(context.Context) error) erro
 }
 
 // OnProgress is called with convert progress in [0, 1]. At crash_at the process exits
-// 137. slow stretches the time between ticks by that factor and does not touch heartbeats.
+// 137 when this guard's epoch is 1. A later epoch converts through. slow stretches the
+// time between ticks by that factor on every epoch and does not touch heartbeats.
 func (g *Guard) OnProgress(frac float64) {
 	if g == nil || !g.enabled {
 		return
@@ -140,7 +146,7 @@ func (g *Guard) OnProgress(frac float64) {
 		}
 		g.last = time.Now()
 	}
-	if g.flags.CrashAt != nil && frac >= *g.flags.CrashAt {
+	if g.epoch == 1 && g.flags.CrashAt != nil && frac >= *g.flags.CrashAt {
 		os.Exit(137)
 	}
 }

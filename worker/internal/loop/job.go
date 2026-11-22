@@ -117,7 +117,7 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	}
 	downloadMS := time.Since(t).Milliseconds()
 
-	guard, err := chaos.New(os.Getenv, qm.Chaos)
+	guard, err := chaos.New(os.Getenv, qm.Chaos, epoch)
 	if err != nil {
 		p.fail(ctx, qm.JobID, epoch, "CHAOS_INVALID", err, true, logger)
 		return
@@ -126,8 +126,9 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 		logger.Info("chaos", "flags", string(qm.Chaos))
 	}
 	// pause_s freezes the claimed job, and heartbeats with it, before ogr2ogr starts.
-	// crash_at then kills at a fraction of convert progress; slow stretches the gaps
-	// between those ticks without stopping heartbeats.
+	// crash_at then kills at a fraction of convert progress on epoch 1 only; a later
+	// claim converts through. slow stretches the gaps between those ticks without
+	// stopping heartbeats.
 	if err := guard.Hold(ctx); err != nil {
 		logger.Error("chaos pause interrupted", "error", err.Error())
 		return
