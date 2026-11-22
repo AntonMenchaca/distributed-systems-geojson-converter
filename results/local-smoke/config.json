@@ -1,0 +1,24 @@
+{
+  "run_id": "local-smoke",
+  "phase": "local",
+  "owner": null,
+  "account_prefix": "local",
+  "git_sha": "10e0c3f0dc130dc4f2b97598edb3c85f91ab6ddb",
+  "gdal_version": "3.13.3",
+  "trace_file": "traces/sample.csv",
+  "seed": null,
+  "knobs": {
+    "COMMIT_MODE": "blind",
+    "GDAL_PROFILE": "defaults",
+    "LEASE_MODE": "fixed-30s",
+    "QUEUE_LAYOUT": "single",
+    "SHUTDOWN_MODE": "ignore",
+    "WORKER_CONCURRENCY": "fixed-4"
+  },
+  "task_defs": {
+    "api": "sha256:3b0a54087412e69c43e7b6091f7cac77cdf986b9d380056a79cda2951025deb1",
+    "worker": "sha256:0bef1dc3c1a875f64da9dbc739a5f5f23456ff095f76d14741b39111f1689d00"
+  },
+  "started_at": "2026-11-22T03:59:18.185Z",
+  "estimates_version": "v0"
+}

@@ -1,0 +1,13 @@
+{
+  "version": "v0",
+  "passed": true,
+  "complete": true,
+  "unfinished": [],
+  "jobs": 30,
+  "checked": 30,
+  "status_counts": {
+    "SUCCEEDED": 30
+  },
+  "failures": [],
+  "run_id": "local-smoke"
+}
