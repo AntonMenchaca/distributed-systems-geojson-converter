@@ -79,24 +79,29 @@ def test_verify_flags_status_regression():
 
 
 def test_verify_flags_mixed_attempt_shapefile():
-    # A shapefile is several files. Two attempts can zip sidecars from both, and the
-    # feature count still matches.
+    # A shapefile zip is one object from one attempt. A retry that finishes is legitimate.
+    # The failure is a stale upload: the epoch on the object is not the SUCCEEDED attempt.
+    # Tests pass the object epoch in. The verify command reads it from the object's user metadata.
     attempts = [
         {"epoch": 1, "task_id": "task-a", "outcome": "LOST"},
         {"epoch": 2, "task_id": "task-b", "outcome": "SUCCEEDED"},
     ]
     shp = job(output_format="shp", output_key="outputs/local-x/j1/local-x_dc_j1.shp.zip", attempts=attempts)
-    report = verify.verify([shp], CATALOG, count_features=lambda j: 1000)
+    report = verify.verify([shp], CATALOG, count_features=lambda j: 1000, object_epoch=lambda j: "1")
     assert report["passed"] is False
     assert report["failures"] == [{"job_id": "j1", "check": "mixed_attempt", "output_format": "shp"}]
 
-    # The same two attempts are not a mixed shapefile on a single-file format, and a
-    # shapefile from one attempt is clean.
+    # The same job passes when the object epoch is the attempt that succeeded, even though
+    # an earlier attempt exists. Missing epoch metadata is not a failure.
+    assert verify.verify([shp], CATALOG, count_features=lambda j: 1000, object_epoch=lambda j: "2")["passed"] is True
+    assert verify.verify([shp], CATALOG, count_features=lambda j: 1000, object_epoch=lambda j: None)["passed"] is True
+
+    # A GeoPackage with two attempts is not this check, and a shapefile from one attempt is clean.
     gpkg = job(attempts=attempts)
     one = job(job_id="j2", output_format="shp", output_key="outputs/local-x/j2/local-x_dc_j2.shp.zip",
               attempts=[{"epoch": 1, "task_id": "task-a", "outcome": "SUCCEEDED"}])
-    assert verify.verify([gpkg], CATALOG, count_features=lambda j: 1000)["passed"] is True
-    assert verify.verify([one], CATALOG, count_features=lambda j: 1000)["passed"] is True
+    assert verify.verify([gpkg], CATALOG, count_features=lambda j: 1000, object_epoch=lambda j: "1")["passed"] is True
+    assert verify.verify([one], CATALOG, count_features=lambda j: 1000, object_epoch=lambda j: "1")["passed"] is True
 
 
 def test_verify_nonzero_exit_on_failure(tmp_path):

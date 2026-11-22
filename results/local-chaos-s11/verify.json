@@ -1,21 +1,109 @@
 {
   "version": "v0",
   "passed": false,
-  "complete": false,
-  "unfinished": [
-    "a6b59567-92ed-4d2b-af71-2072b081f12d",
-    "be460e13-a092-466a-ba31-3991b0c0e19c",
-    "699ec32a-8322-4d50-8b2a-24c3c9bc2612",
-    "57ef4eb5-50dd-49db-924c-7873209f7b7f",
-    "04d5485e-9686-43da-a952-742a20cc0178"
-  ],
-  "jobs": 10,
-  "checked": 5,
+  "complete": true,
+  "unfinished": [],
+  "jobs": 447,
+  "checked": 447,
   "status_counts": {
-    "SUCCEEDED": 5,
-    "QUEUED": 2,
-    "RUNNING": 3
+    "SUCCEEDED": 447
   },
-  "failures": [],
+  "failures": [
+    {
+      "job_id": "8d218b81-94c3-4886-b028-96c267b04d75",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "7a3b97e3-f700-4b16-8eb3-faa00e0b6119",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "6b00d1aa-d33d-4577-aaa6-506fe9196f2c",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "15dff763-afb3-4bd4-8b69-9c3d32c307c3",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "d3704fdd-b8db-4dfd-8160-812c63da626a",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "57fd83fb-e7ee-46cc-9d56-ef8ddd057811",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "e792efb4-6b5b-4b9b-9638-babfc85508e5",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "4570224b-c1df-4bc1-afe8-106af11275e4",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "df22ded2-8d1a-416c-830d-f65758b06ae4",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "7435cdd2-2017-4052-8658-50dcff0f7d14",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "e9d22ec6-1bfa-4f02-9ede-3673b7ecb6ab",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "7494d449-f974-4660-98af-6cb92bdf7a95",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "8bc637ff-aabb-43a3-a911-cdc7de5b44a3",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "8b0f8df4-5a8d-4449-8e63-01c193d6860f",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "f8a836d2-c217-4af2-a44a-4e877e00b66c",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "a0b1271b-05f8-4c1b-a926-3f99c6d9dd48",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "481a8c66-c7f5-4c68-9a70-136c0f8dd803",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "fb349ff8-a8d1-41ce-8abe-11c73fa15fbc",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    },
+    {
+      "job_id": "9d61b242-4288-4535-9a6c-3898c643b811",
+      "check": "mixed_attempt",
+      "output_format": "shp"
+    }
+  ],
   "run_id": "local-chaos-s11"
 }

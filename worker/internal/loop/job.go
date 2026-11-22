@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -164,7 +165,12 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 
 	t = time.Now()
 	key := "outputs/" + qm.RunID + "/" + qm.JobID + "/" + filepath.Base(file)
-	meta := map[string]string{"run-id": qm.RunID, "job-id": qm.JobID, "dataset-id": target.Dataset, "output-format": qm.OutputFormat}
+	// epoch is this claim's. verify compares it with the SUCCEEDED attempt so a stale
+	// upload that overwrote the object is visible. S3 user-metadata values are strings.
+	meta := map[string]string{
+		"run-id": qm.RunID, "job-id": qm.JobID, "dataset-id": target.Dataset,
+		"output-format": qm.OutputFormat, "epoch": strconv.FormatInt(epoch, 10),
+	}
 	if err := p.Objects.Upload(ctx, key, file, meta); err != nil {
 		p.fail(ctx, qm.JobID, epoch, "UPLOAD_FAILED", err, false, logger)
 		return
