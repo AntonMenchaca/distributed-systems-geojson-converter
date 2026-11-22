@@ -1,6 +1,7 @@
 """Export one run's job records to jobs.csv, with the latency metrics every analysis reads.
 
-    python tools/collect.py --run-id local-smoke --out results/local-smoke/jobs.csv
+    python tools/collect.py --run-id local-smoke --out results/local-smoke/jobs.csv \
+        --attempts-out results/local-smoke/attempts.csv
 
 Reads the jobs table's run_id index, so only that run's jobs are exported. Endpoints and
 credentials come from the environment (AWS_ENDPOINT_URL_DYNAMODB locally).
@@ -18,6 +19,7 @@ commit refused them. More than one means the job was converted twice (a duplicat
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import os
 import sys
@@ -38,6 +40,10 @@ RECORD_FIELDS = [
 METRICS = ["queue_wait_s", "processing_s", "turnaround_s", "slowdown"]
 FINISHED = {"SUCCEEDED", "STALE"}
 COLUMNS = RECORD_FIELDS + ["attempt_count", "finished_attempts", "last_outcome"] + METRICS
+# One attempts.csv row per entry in a job's attempts list (schemas/job-record.json).
+ATTEMPT_FIELDS = ["epoch", "task_id", "started_at", "ended_at", "outcome", "error_code",
+                  "peak_rss_mb", "cpu_s", "peak_disk_mb"]
+ATTEMPT_COLUMNS = ["run_id", "job_id"] + ATTEMPT_FIELDS
 
 
 def parse_ts(value) -> datetime | None:
@@ -85,13 +91,25 @@ def row(job: dict) -> dict:
     return {k: cell(out[k]) for k in COLUMNS}
 
 
-def export(dynamodb, table: str, run_id: str, out: TextIO) -> int:
-    """Write the run's jobs as CSV to out, ordered by submission; returns how many."""
+def attempt_rows(job: dict) -> list[dict]:
+    attempts = [a for a in (job.get("attempts") or []) if isinstance(a, dict)]
+    return [{"run_id": cell(job.get("run_id")), "job_id": cell(job["job_id"]),
+             **{f: cell(a.get(f)) for f in ATTEMPT_FIELDS}} for a in attempts]
+
+
+def export(dynamodb, table: str, run_id: str, out: TextIO, attempts_out: TextIO | None = None) -> int:
+    """Write the run's jobs as CSV to out, ordered by submission, and, when attempts_out is
+    given, every attempt of those jobs to it; returns how many jobs."""
     jobs = sorted(load_jobs(dynamodb, table, run_id), key=lambda j: (str(j.get("submitted_at", "")), j["job_id"]))
     w = csv.DictWriter(out, fieldnames=COLUMNS, lineterminator="\n")
     w.writeheader()
     for j in jobs:
         w.writerow(row(j))
+    if attempts_out is not None:
+        aw = csv.DictWriter(attempts_out, fieldnames=ATTEMPT_COLUMNS, lineterminator="\n")
+        aw.writeheader()
+        for j in jobs:
+            aw.writerows(attempt_rows(j))
     return len(jobs)
 
 
@@ -101,12 +119,15 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--attempts-out", type=Path, help="also write one row per attempt here (attempts.csv)")
     ap.add_argument("--table", default=os.environ.get("JOBS_TABLE", "jobs"))
     args = ap.parse_args(argv)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("w", newline="") as f:
-        n = export(boto3.client("dynamodb"), args.table, args.run_id, f)
+    with contextlib.ExitStack() as stack:
+        f = stack.enter_context(args.out.open("w", newline=""))
+        attempts = stack.enter_context(args.attempts_out.open("w", newline="")) if args.attempts_out else None
+        n = export(boto3.client("dynamodb"), args.table, args.run_id, f, attempts)
     if n == 0:
         print(f"no jobs for run_id {args.run_id}", file=sys.stderr)
         return 2

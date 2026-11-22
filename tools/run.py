@@ -16,21 +16,21 @@ results/<phase>/<run>/. This script never deploys or destroys anything.
 In order:
   1. Pre-flight. Refuses to start (exit 2) unless the run name is new and well formed, every
      dataset in the trace is in the catalog, the API is healthy and every queue and DLQ is
-     empty. On AWS also: the caller is a Learner Lab role, the lab session has at least 60
-     minutes left, the deployed knobs match the tfvars, every service has running = desired
-     (and any autoscaler is at its minimum), and costs.csv plus this run's estimate stays
-     under the budget.
+     empty. On AWS also: the caller is a Learner Lab role, the lab session outlasts the
+     run's time limit plus teardown, the deployed knobs match the tfvars, every service has
+     running = desired (and any autoscaler is at its minimum), and this account's priced
+     costs.csv rows plus this run's estimate stay under the budget.
   2. config.json: knobs, task definitions, git SHA, GDAL and estimates.json versions, seed.
   3. Start the samplers: queues.csv, tasks.csv and, locally, resources.csv.
   4. Replay the trace with Locust (open loop): locust_*.csv.
   5. Wait until every job is terminal, or until the trace's length plus --drain-s.
-  6. collect.py (jobs.csv), resources.csv from Container Insights on AWS, then verify.py.
+  6. collect.py (jobs.csv, attempts.csv), resources.csv from Container Insights on AWS, then verify.py.
   7. cost.py, when it exists: the costs.csv row and a check for stacks left running.
 events.csv records each step's time; the task killer appends its kills to the same file.
 
 Exit status: 0 the run finished and verified; 1 verify failed; 2 refused at pre-flight;
-3 incomplete (time limit, collection failure or interrupted; the folder has an INCOMPLETE file
-saying why).
+3 incomplete (time limit, fewer jobs than trace rows, collection failure or interrupted; the
+folder has an INCOMPLETE file saying why).
 """
 from __future__ import annotations
 
@@ -56,8 +56,9 @@ AWS_PHASE = re.compile(r"^p[1-9]$")
 TERMINAL = {"SUCCEEDED", "FAILED", "DEAD_LETTERED", "REJECTED"}
 
 SESSION_HOURS = 4          # a Learner Lab session's length
-MIN_SESSION_LEFT_MIN = 60  # a run needs at least this much session left to finish and collect
-BUDGET_USD = 17.0          # the plan's cap on costs.csv plus the next run's estimate
+MIN_SESSION_LEFT_MIN = 60  # the least session a run needs, however short its trace
+TEARDOWN_MIN = 10          # on top of the run: collect, then terraform destroy
+BUDGET_USD = 17.0          # per account: its costs.csv rows plus the next run's estimate
 
 # us-east-1 on-demand prices (USD per hour).
 FARGATE_VCPU_HR = 0.04048
@@ -133,18 +134,22 @@ def session_end(credentials_mtime: datetime | None, override: str | None, now: d
     --session-ends gives the time shown in the lab."""
     if override:
         hh, mm = (int(x) for x in override.split(":"))
-        return now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        end = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        # The lab shows a clock time: one at or before now is tomorrow's.
+        return end if end > now else end + timedelta(days=1)
     if credentials_mtime is None:
         return None
     return credentials_mtime + timedelta(hours=SESSION_HOURS)
 
 
-def session_problems(end: datetime | None, now: datetime) -> list[str]:
+def session_problems(end: datetime | None, now: datetime, time_limit_s: float) -> list[str]:
+    """The session must outlast the run's time limit (trace plus drain) and the teardown."""
     if end is None:
         return ["cannot tell when the lab session ends: no credentials file; pass --session-ends HH:MM"]
     left = (end - now).total_seconds() / 60
-    if left < MIN_SESSION_LEFT_MIN:
-        return [f"the lab session ends at {end:%H:%M} ({left:.0f} min left); a run needs {MIN_SESSION_LEFT_MIN}. "
+    needed = max(time_limit_s / 60, MIN_SESSION_LEFT_MIN) + TEARDOWN_MIN
+    if left < needed:
+        return [f"the lab session ends at {end:%H:%M} ({left:.0f} min left); this run needs {needed:.0f}. "
                 "Restart the session and refresh the credentials, or pass --session-ends if this is wrong"]
     return []
 
@@ -190,6 +195,18 @@ def knob_problems(tfvars: dict[str, str], knobs: dict[str, str], deployed_prefix
     return problems
 
 
+def declared_variables() -> set[str]:
+    """Every variable the root module declares (terraform/*.tf)."""
+    return {m for f in (REPO / "terraform").glob("*.tf")
+            for m in re.findall(r'^variable\s+"([^"]+)"', f.read_text(), flags=re.M)}
+
+
+def undeclared_problems(tfvars: dict[str, str], declared: set[str]) -> list[str]:
+    # Terraform only warns about these, so a misspelt knob would deploy its default.
+    return [f"tfvars sets {var}, which terraform/ does not declare (a typo?)"
+            for var in tfvars if var not in declared]
+
+
 def knob_names() -> set[str]:
     """Every knob in knobs.md's table (its first column)."""
     names = set()
@@ -223,16 +240,29 @@ def estimate_usd(vcpu: float, gb: float, hours: float) -> float:
     return hours * (vcpu * FARGATE_VCPU_HR + gb * FARGATE_GB_HR + ALB_HR)
 
 
-def spent_usd(costs: Path) -> float:
+def spent_usd(costs: Path, prefix: str) -> tuple[float, list[str]]:
+    """What this account's earlier runs cost, and a problem for each of its rows with no price."""
     if not costs.exists():
-        return 0.0
+        return 0.0, []
     with costs.open(newline="") as f:
-        return sum(float(r["usd"] or 0) for r in csv.DictReader(f))
+        rows = [r for r in csv.DictReader(f) if r["account_prefix"] == prefix]
+    unpriced = [r["run_id"] for r in rows if not r["usd"].strip()]
+    problems = [f"costs.csv row {run_id} has no usd: fill in its price before the next run" for run_id in unpriced]
+    return sum(float(r["usd"]) for r in rows if r["usd"].strip()), problems
 
 
 def budget_problems(spent: float, estimate: float) -> list[str]:
     if spent + estimate >= BUDGET_USD:
-        return [f"costs.csv has ${spent:.2f}; this run adds up to ${estimate:.2f}, past the ${BUDGET_USD:.0f} budget"]
+        return [f"this account's runs in costs.csv cost ${spent:.2f}; this run adds up to ${estimate:.2f}, past the ${BUDGET_USD:.0f} budget"]
+    return []
+
+
+# --- submission ---------------------------------------------------------------------------
+
+def submission_problems(trace_rows: int, jobs_found: int) -> list[str]:
+    """A run whose jobs don't cover its trace is incomplete, even if those jobs verify."""
+    if jobs_found < trace_rows:
+        return [f"{jobs_found} of {trace_rows} trace rows submitted"]
     return []
 
 
@@ -348,8 +378,11 @@ class AWS:
         arn = boto3.client("sts").get_caller_identity()["Arn"]
         if "assumed-role/voclabs/" not in arn:
             problems.append(f"caller {arn} is not a Learner Lab session (assumed-role/voclabs/); check AWS_PROFILE")
-        problems += session_problems(session_end(credentials_mtime(), args.session_ends, datetime.now()), datetime.now())
-        problems += knob_problems(parse_tfvars(self.tfvars_path), self.out["knobs"], self.prefix)
+        now = datetime.now()
+        problems += session_problems(session_end(credentials_mtime(), args.session_ends, now), now, args.time_limit_s)
+        tfvars = parse_tfvars(self.tfvars_path)
+        problems += undeclared_problems(tfvars, declared_variables())
+        problems += knob_problems(tfvars, self.out["knobs"], self.prefix)
 
         ecs = boto3.client("ecs")
         services = ecs.describe_services(cluster=self.out["cluster_name"], services=self.services)["services"]
@@ -364,7 +397,8 @@ class AWS:
             vcpu += s["desiredCount"] * int(td["cpu"]) / 1024
             gb += s["desiredCount"] * int(td["memory"]) / 1024
         self.estimate = estimate_usd(vcpu, gb, hours=args.time_limit_s / 3600)
-        problems += budget_problems(spent_usd(REPO / "results/costs.csv"), self.estimate)
+        spent, unpriced = spent_usd(REPO / "results/costs.csv", self.prefix)
+        problems += unpriced + budget_problems(spent, self.estimate)
         return problems
 
     def knobs(self) -> dict:
@@ -462,6 +496,7 @@ def config(args, target, started_at: str) -> dict:
         "knobs": target.knobs(),
         "task_defs": target.task_defs(),
         "started_at": started_at,
+        # The repo's file: an API started with ESTIMATES_PATH pointing elsewhere is not reflected here.
         "estimates_version": estimates.get("version"),
     }
 
@@ -541,6 +576,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"run: {dict(counts)}", flush=True)
             if counts and not waiting:
                 event(events, "all_terminal")
+                reason = next(iter(submission_problems(len(trace_rows), sum(counts.values()))), None)
                 break
             if time.monotonic() >= deadline:
                 reason = f"time limit: {waiting} jobs not terminal {args.drain_s:.0f} s after the trace ended"
@@ -559,6 +595,7 @@ def main(argv: list[str] | None = None) -> int:
     subprocess.run([sys.executable, "tools/watch_ecs.py", *target.tasks_args(folder), "--once"], cwd=REPO, env=target.env)
     try:
         if subprocess.run([sys.executable, "tools/collect.py", "--run-id", args.run, "--out", str(folder / "jobs.csv"),
+                           "--attempts-out", str(folder / "attempts.csv"),
                            "--table", target.table], cwd=REPO, env=target.env).returncode != 0:
             raise RuntimeError("collect.py failed")
         target.after_run(folder, started_at, ended_at)

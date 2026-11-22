@@ -41,14 +41,25 @@ def test_session_end_is_four_hours_after_the_credentials_were_written():
     assert run.session_end(credentials_mtime=NOW - timedelta(hours=3), override=None, now=NOW) == NOW + timedelta(hours=1)
 
 
-def test_session_end_override_is_a_local_clock_time_today():
+def test_session_end_override_is_the_next_time_the_clock_shows_it():
     assert run.session_end(credentials_mtime=None, override="13:30", now=NOW) == NOW.replace(hour=13, minute=30)
+    # At 23:30, 01:00 is tomorrow: the session still has 90 minutes.
+    late = NOW.replace(hour=23, minute=30)
+    assert run.session_end(credentials_mtime=None, override="01:00", now=late) == late.replace(hour=1, minute=0) + timedelta(days=1)
 
 
-def test_less_than_an_hour_left_refuses():
-    assert run.session_problems(NOW + timedelta(minutes=59), now=NOW)
-    assert run.session_problems(NOW + timedelta(minutes=61), now=NOW) == []
-    assert run.session_problems(None, now=NOW)  # no credentials file and no --session-ends
+def test_less_than_an_hour_and_ten_minutes_left_refuses():
+    # A short run still needs an hour, plus time to collect and destroy.
+    short = 600
+    assert run.session_problems(NOW + timedelta(minutes=69), now=NOW, time_limit_s=short)
+    assert run.session_problems(NOW + timedelta(minutes=71), now=NOW, time_limit_s=short) == []
+    assert run.session_problems(None, now=NOW, time_limit_s=short)  # no credentials file and no --session-ends
+
+
+def test_session_shorter_than_the_runs_limit_refuses():
+    # Trace plus drain is 75 minutes: 61 minutes left is not enough.
+    assert run.session_problems(NOW + timedelta(minutes=61), now=NOW, time_limit_s=75 * 60)
+    assert run.session_problems(NOW + timedelta(minutes=86), now=NOW, time_limit_s=75 * 60) == []
 
 
 # --- knobs --------------------------------------------------------------------------------
@@ -83,6 +94,15 @@ def test_a_tfvars_prefix_for_another_stack_refuses():
     assert run.knob_problems({"prefix": "gc-ikwo"}, KNOBS, deployed_prefix="gc-anton")
 
 
+def test_an_undeclared_tfvars_variable_refuses():
+    # Terraform only warns about a var-file variable it doesn't declare, so a typo deploys the default.
+    declared = run.declared_variables()
+    assert {"prefix", "lease_mode", "worker_count"} <= declared
+    assert run.undeclared_problems({"prefix": "gc-anton", "lease_mode": "fixed-30s"}, declared) == []
+    problems = run.undeclared_problems({"prefix": "gc-anton", "lease_mdoe": "fixed-12h"}, declared)
+    assert len(problems) == 1 and "lease_mdoe" in problems[0]
+
+
 # --- stack state --------------------------------------------------------------------------
 
 def test_queues_must_be_empty():
@@ -108,16 +128,32 @@ def test_estimate_prices_vcpu_and_memory_hours_plus_the_load_balancer():
     assert usd == pytest.approx(0.5 * (4.5 * run.FARGATE_VCPU_HR + 17 * run.FARGATE_GB_HR + run.ALB_HR))
 
 
-def test_budget_counts_every_earlier_run(tmp_path):
-    costs = tmp_path / "costs.csv"
-    with costs.open("w", newline="") as f:
+def write_costs(path, rows):
+    with path.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["run_id", "owner", "account_prefix", "started_at", "ended_at", "task_hours", "vcpu_hours", "gb_hours", "usd"])
-        w.writerow(["a", "anton", "gc-anton", "", "", "", "", "", "16.50"])
-    assert run.spent_usd(costs) == pytest.approx(16.5)
+        for run_id, prefix, usd in rows:
+            w.writerow([run_id, prefix.removeprefix("gc-"), prefix, "", "", "", "", "", usd])
+
+
+def test_budget_counts_only_this_accounts_runs(tmp_path):
+    # Each Learner Lab account has its own credit, so another member's runs don't spend it.
+    costs = tmp_path / "costs.csv"
+    write_costs(costs, [("a", "gc-anton", "16.50"), ("b", "gc-ikwo", "5.00")])
+    assert run.spent_usd(costs, "gc-anton") == (pytest.approx(16.5), [])
+    assert run.spent_usd(costs, "gc-samuel") == (0.0, [])
     assert run.budget_problems(spent=16.5, estimate=0.4) == []
     assert run.budget_problems(spent=16.5, estimate=0.6)
-    assert run.spent_usd(tmp_path / "missing.csv") == 0.0
+    assert run.spent_usd(tmp_path / "missing.csv", "gc-anton") == (0.0, [])
+
+
+def test_a_blank_price_for_this_account_refuses(tmp_path):
+    # A blank usd is an unpriced run, not a free one.
+    costs = tmp_path / "costs.csv"
+    write_costs(costs, [("a", "gc-anton", "1.00"), ("p1-x-anton-s1", "gc-anton", ""), ("b", "gc-ikwo", "")])
+    spent, problems = run.spent_usd(costs, "gc-anton")
+    assert spent == pytest.approx(1.0)
+    assert len(problems) == 1 and "p1-x-anton-s1" in problems[0]
 
 
 # --- trace --------------------------------------------------------------------------------
@@ -146,3 +182,13 @@ def test_events_file_uses_the_chaos_killer_columns(tmp_path):
 def test_gdal_version_is_the_number_only():
     assert run.gdal_version_of('GDAL 3.13.3 "Iowa City", released 2026/09/01') == "3.13.3"
     assert run.gdal_version_of("") == "unknown"
+
+
+# --- submission ---------------------------------------------------------------------------
+
+def test_fewer_jobs_than_trace_rows_is_incomplete():
+    # Locust stops at its run time and gives up on a row after its last 429 retry; the jobs
+    # that did get in can still verify, so the shortfall has to fail the run on its own.
+    assert run.submission_problems(trace_rows=30, jobs_found=30) == []
+    problems = run.submission_problems(trace_rows=30, jobs_found=27)
+    assert problems and "27 of 30" in problems[0]

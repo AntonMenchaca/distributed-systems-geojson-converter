@@ -30,6 +30,7 @@ outputs/<run>/<job_id>/<run>_<dataset>_<first 8 characters of job_id>.gpkg | .sh
 |------|------------|----------|
 | `config.json` | `scripts/run.sh` | `run_id, phase, owner, account_prefix, git_sha, gdal_version, trace_file, seed, knobs{...}, task_defs{...}, started_at`, plus the `estimates.json` `version` |
 | `jobs.csv` | `tools/collect.py` | one row per job record (DynamoDB export by the `run_id` index), plus `attempt_count`, `finished_attempts` (attempts that converted to the end; more than one is a duplicate), `last_outcome` and the latency metrics `queue_wait_s`, `processing_s`, `turnaround_s`, `slowdown` (definitions in `collect.py`) |
+| `attempts.csv` | `tools/collect.py` | one row per attempt of each job: `run_id, job_id, epoch, task_id, started_at, ended_at, outcome, error_code, peak_rss_mb, cpu_s, peak_disk_mb`. The job record's attempts list, kept because the table is destroyed with the stack |
 | `queues.csv` | sampler | SQS visible / in-flight per queue over time |
 | `tasks.csv` | sampler | ECS task start and stop times per service |
 | `events.csv` | `run.sh`, chaos tools | timestamped run events (start, kill, drain, end) |
