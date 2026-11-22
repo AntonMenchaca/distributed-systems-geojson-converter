@@ -94,6 +94,15 @@ def test_a_tfvars_prefix_for_another_stack_refuses():
     assert run.knob_problems({"prefix": "gc-ikwo"}, KNOBS, deployed_prefix="gc-anton")
 
 
+def test_an_undeclared_tfvars_variable_refuses():
+    # Terraform only warns about a var-file variable it doesn't declare, so a typo deploys the default.
+    declared = run.declared_variables()
+    assert {"prefix", "lease_mode", "worker_count"} <= declared
+    assert run.undeclared_problems({"prefix": "gc-anton", "lease_mode": "fixed-30s"}, declared) == []
+    problems = run.undeclared_problems({"prefix": "gc-anton", "lease_mdoe": "fixed-12h"}, declared)
+    assert len(problems) == 1 and "lease_mdoe" in problems[0]
+
+
 # --- stack state --------------------------------------------------------------------------
 
 def test_queues_must_be_empty():

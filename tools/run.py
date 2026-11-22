@@ -195,6 +195,18 @@ def knob_problems(tfvars: dict[str, str], knobs: dict[str, str], deployed_prefix
     return problems
 
 
+def declared_variables() -> set[str]:
+    """Every variable the root module declares (terraform/*.tf)."""
+    return {m for f in (REPO / "terraform").glob("*.tf")
+            for m in re.findall(r'^variable\s+"([^"]+)"', f.read_text(), flags=re.M)}
+
+
+def undeclared_problems(tfvars: dict[str, str], declared: set[str]) -> list[str]:
+    # Terraform only warns about these, so a misspelt knob would deploy its default.
+    return [f"tfvars sets {var}, which terraform/ does not declare (a typo?)"
+            for var in tfvars if var not in declared]
+
+
 def knob_names() -> set[str]:
     """Every knob in knobs.md's table (its first column)."""
     names = set()
@@ -359,7 +371,9 @@ class AWS:
             problems.append(f"caller {arn} is not a Learner Lab session (assumed-role/voclabs/); check AWS_PROFILE")
         now = datetime.now()
         problems += session_problems(session_end(credentials_mtime(), args.session_ends, now), now, args.time_limit_s)
-        problems += knob_problems(parse_tfvars(self.tfvars_path), self.out["knobs"], self.prefix)
+        tfvars = parse_tfvars(self.tfvars_path)
+        problems += undeclared_problems(tfvars, declared_variables())
+        problems += knob_problems(tfvars, self.out["knobs"], self.prefix)
 
         ecs = boto3.client("ecs")
         services = ecs.describe_services(cluster=self.out["cluster_name"], services=self.services)["services"]
