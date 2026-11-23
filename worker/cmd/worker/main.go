@@ -205,16 +205,17 @@ func main() {
 		convert = gdal.ConvertProfile
 	}
 	proc := &loop.Processor{
-		Store:    jobstore.NewDynamoStore(dynamodb.NewFromConfig(awsCfg), cfg.JobsTable, jobstore.CommitMode(cfg.CommitMode)),
-		SQS:      sqsClient,
-		QueueURL: cfg.QueueURL,
-		Objects:  loop.S3Objects{Client: s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = cfg.S3PathStyle }), Bucket: cfg.Bucket},
-		Convert:  convert,
-		WorkDir:  cfg.WorkDir,
-		TaskID:   taskID,
-		Profile:  cfg.Profile,
-		Logger:   logger,
-		Now:      time.Now,
+		Store:          jobstore.NewDynamoStore(dynamodb.NewFromConfig(awsCfg), cfg.JobsTable, jobstore.CommitMode(cfg.CommitMode)),
+		SQS:            sqsClient,
+		QueueURL:       cfg.QueueURL,
+		Objects:        loop.S3Objects{Client: s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = cfg.S3PathStyle }), Bucket: cfg.Bucket},
+		Convert:        convert,
+		WorkDir:        cfg.WorkDir,
+		TaskID:         taskID,
+		Profile:        cfg.Profile,
+		MeasureProfile: cfg.MeasureProfile,
+		Logger:         logger,
+		Now:            time.Now,
 	}
 	policy, err := loop.NewPolicy(cfg.SchedPolicy, cfg.QueueURLs) // already validated by loadConfig
 	if err != nil {

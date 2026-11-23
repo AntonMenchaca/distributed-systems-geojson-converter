@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -73,6 +74,24 @@ func TestParseProcStatusRSS(t *testing.T) {
 	}
 	if _, err := parseProcStatusRSS("Name:\togr2ogr\n"); err == nil {
 		t.Fatal("missing VmRSS accepted")
+	}
+}
+
+func TestProfileHeaderIsThePhase2Table(t *testing.T) {
+	want := []string{
+		"run_id", "job_id", "dataset_id", "output_format", "gdal_profile",
+		"input_bytes", "output_bytes", "output_features",
+		"wall_ms", "package_ms", "cpu_s", "peak_rss_mb", "peak_disk_mb",
+		"ogrinfo_ms", "error",
+	}
+	if !slices.Equal(ProfileHeader, want) {
+		t.Fatalf("ProfileHeader = %v", ProfileHeader)
+	}
+}
+
+func TestCeilMiB(t *testing.T) {
+	if CeilMiB(0) != 0 || CeilMiB(1) != 1 || CeilMiB(1<<20) != 1 || CeilMiB((1<<20)+1) != 2 {
+		t.Fatalf("CeilMiB(0,1,1MiB,1MiB+1) = %d %d %d %d", CeilMiB(0), CeilMiB(1), CeilMiB(1<<20), CeilMiB((1<<20)+1))
 	}
 }
 

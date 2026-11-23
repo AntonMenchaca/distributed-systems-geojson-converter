@@ -82,7 +82,8 @@ services:
       LEASE_MODE: ${LEASE_MODE:-fixed-30s}
       COMMIT_MODE: ${COMMIT_MODE:-blind}
       GDAL_PROFILE: ${GDAL_PROFILE:-defaults}
-      # 1: one job at a time, and the worker samples that child's RSS. Not GDAL_PROFILE.
+      # 1: one job at a time, the worker samples that child's RSS, and uploads
+      # profiles/<run_id>/<job_id>.csv. Not GDAL_PROFILE. collect.py joins those objects.
       PROFILE: ${PROFILE:-0}
       # ignore: SIGTERM does nothing, so `docker compose stop` kills the worker mid-job after 10 s
       SHUTDOWN_MODE: ${SHUTDOWN_MODE:-ignore}

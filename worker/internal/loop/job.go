@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,16 +50,17 @@ type QueueMessage struct {
 // Processor runs one job: claim, download, convert, package, upload, commit, delete. In the
 // baseline (COMMIT_MODE=blind) the output goes straight to its final key.
 type Processor struct {
-	Store    jobstore.Store
-	SQS      SQSAPI
-	QueueURL string // fallback for messages that don't record their queue
-	Objects  Objects
-	Convert  ConvertFunc
-	WorkDir  string
-	TaskID   string
-	Profile  string // GDAL_PROFILE
-	Logger   *slog.Logger
-	Now      func() time.Time
+	Store          jobstore.Store
+	SQS            SQSAPI
+	QueueURL       string // fallback for messages that don't record their queue
+	Objects        Objects
+	Convert        ConvertFunc
+	WorkDir        string
+	TaskID         string
+	Profile        string // GDAL_PROFILE
+	MeasureProfile bool   // PROFILE=1: upload one profile row for this job
+	Logger         *slog.Logger
+	Now            func() time.Time
 }
 
 func (p *Processor) log() *slog.Logger {
@@ -90,10 +92,27 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	}
 	logger = logger.With("epoch", epoch)
 
+	// PROFILE=1 records one row for this attempt. The profile defer is registered
+	// before finishDisk, so the disk sample is taken first and the row is uploaded
+	// before the job directory is removed.
+	var peakDisk int64
+	diskDone := false
+	var obs *profileObs
+	if p.MeasureProfile {
+		obs = &profileObs{dataset: outputTarget(qm).Dataset}
+	}
+
 	jobDir := filepath.Join(p.WorkDir, fmt.Sprintf("%s-%d", qm.JobID, epoch))
 	defer os.RemoveAll(jobDir)
+	if obs != nil {
+		defer func() {
+			if obs.write {
+				p.uploadProfile(ctx, qm, obs, peakDisk, diskDone, logger)
+			}
+		}()
+	}
 	if err := os.MkdirAll(jobDir, 0o755); err != nil {
-		p.fail(ctx, qm.JobID, epoch, "WORKDIR_FAILED", err, false, logger)
+		p.fail(ctx, qm.JobID, epoch, "WORKDIR_FAILED", err, false, logger, obs)
 		return
 	}
 
@@ -101,8 +120,6 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	// sampled from before the download until packaging ends. disk_mb in estimates.json
 	// predicts this number.
 	stopDisk := measure.SampleDisk(ctx, jobDir, time.Second)
-	var peakDisk int64
-	diskDone := false
 	finishDisk := func() {
 		if !diskDone {
 			peakDisk, diskDone = stopDisk(), true
@@ -113,14 +130,14 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	t := time.Now()
 	in := filepath.Join(jobDir, "in.geojson")
 	if err := p.Objects.Download(ctx, qm.InputKey, in); err != nil {
-		p.fail(ctx, qm.JobID, epoch, "DOWNLOAD_FAILED", err, false, logger)
+		p.fail(ctx, qm.JobID, epoch, "DOWNLOAD_FAILED", err, false, logger, obs)
 		return
 	}
 	downloadMS := time.Since(t).Milliseconds()
 
 	guard, err := chaos.New(os.Getenv, qm.Chaos, epoch)
 	if err != nil {
-		p.fail(ctx, qm.JobID, epoch, "CHAOS_INVALID", err, true, logger)
+		p.fail(ctx, qm.JobID, epoch, "CHAOS_INVALID", err, true, logger, obs)
 		return
 	}
 	if guard.Enabled() && len(qm.Chaos) > 0 && string(qm.Chaos) != "null" {
@@ -142,10 +159,17 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	outDir := filepath.Join(jobDir, "out")
 	target := outputTarget(qm)
 	stats, err := p.Convert(convertCtx, in, outDir, qm.OutputFormat, p.Profile, target.Target)
+	if obs != nil {
+		obs.sawConvert = true
+		obs.stats = stats
+	}
 	if err != nil {
 		finishDisk()
-		p.fail(ctx, qm.JobID, epoch, "CONVERT_FAILED", err, false, logger)
+		p.fail(ctx, qm.JobID, epoch, "CONVERT_FAILED", err, false, logger, obs)
 		return
+	}
+	if obs != nil {
+		obs.convertOK = true
 	}
 
 	// Packaging is timed apart from convert_ms, which is what the format comparisons use.
@@ -153,14 +177,19 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	file, err := gdal.Package(gdal.OutputPath(outDir, qm.OutputFormat, target.Target), qm.OutputFormat)
 	finishDisk()
 	if err != nil {
-		p.fail(ctx, qm.JobID, epoch, "PACKAGE_FAILED", err, false, logger)
+		p.fail(ctx, qm.JobID, epoch, "PACKAGE_FAILED", err, false, logger, obs)
 		return
 	}
 	packageMS := time.Since(t).Milliseconds()
 	info, err := os.Stat(file)
 	if err != nil {
-		p.fail(ctx, qm.JobID, epoch, "PACKAGE_FAILED", err, false, logger)
+		p.fail(ctx, qm.JobID, epoch, "PACKAGE_FAILED", err, false, logger, obs)
 		return
+	}
+	if obs != nil {
+		obs.sawPackage = true
+		obs.packageMS = packageMS
+		obs.outputBytes = info.Size()
 	}
 
 	t = time.Now()
@@ -172,15 +201,14 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 		"output-format": qm.OutputFormat, "epoch": strconv.FormatInt(epoch, 10),
 	}
 	if err := p.Objects.Upload(ctx, key, file, meta); err != nil {
-		p.fail(ctx, qm.JobID, epoch, "UPLOAD_FAILED", err, false, logger)
+		p.fail(ctx, qm.JobID, epoch, "UPLOAD_FAILED", err, false, logger, obs)
 		return
 	}
 	uploadMS := time.Since(t).Milliseconds()
 
-	// TODO(2.1): When PROFILE=1, call measure.WriteProfile with the header defined
-	// next to that function. Supply one value per column, in that order, from this
-	// job: the queue message, stats (ProfilePeakRSSBytes, OgrinfoMS, wall, CPU,
-	// feature count), info.Size(), and peakDisk. Do not invent column names.
+	if obs != nil {
+		obs.write = true
+	}
 	err = p.Store.Commit(ctx, qm.JobID, epoch, jobstore.Result{
 		OutputKey:    key,
 		OutputBytes:  info.Size(),
@@ -191,7 +219,7 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 		UploadMS:     uploadMS,
 		PeakRSSMB:    float64(stats.PeakRSSMB),
 		CPUS:         stats.CPUS,
-		PeakDiskMB:   float64((peakDisk + (1<<20 - 1)) >> 20),
+		PeakDiskMB:   float64(measure.CeilMiB(peakDisk)),
 		CommittedAt:  p.Now(),
 	})
 	if err != nil {
@@ -228,9 +256,85 @@ func outputTarget(qm QueueMessage) jobOutput {
 
 var nonLayerChars = regexp.MustCompile(`[^A-Za-z0-9_]`)
 
+// profileObs is the part of one PROFILE=1 row this attempt has measured.
+// A column stays empty until the stage that produces it has run.
+type profileObs struct {
+	write       bool
+	dataset     string
+	errCode     string
+	sawConvert  bool
+	convertOK   bool
+	stats       gdal.Stats
+	sawPackage  bool
+	packageMS   int64
+	outputBytes int64
+}
+
+// uploadProfile writes this attempt's row to profiles/<run_id>/<job_id>.csv.
+// A later attempt of the same job replaces the object. A failed upload is logged
+// and does not change the job's outcome: the output commit is already decided.
+func (p *Processor) uploadProfile(ctx context.Context, qm QueueMessage, obs *profileObs, peakDisk int64, diskDone bool, logger *slog.Logger) {
+	var buf bytes.Buffer
+	if err := measure.WriteProfile(&buf, measure.ProfileHeader, profileValues(qm, p.Profile, obs, peakDisk, diskDone)); err != nil {
+		logger.Error("profile row", "error", err.Error())
+		return
+	}
+	f, err := os.CreateTemp("", "profile-*.csv")
+	if err != nil {
+		logger.Error("profile row", "error", err.Error())
+		return
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if _, err := f.Write(buf.Bytes()); err != nil {
+		f.Close()
+		logger.Error("profile row", "error", err.Error())
+		return
+	}
+	if err := f.Close(); err != nil {
+		logger.Error("profile row", "error", err.Error())
+		return
+	}
+	key := "profiles/" + qm.RunID + "/" + qm.JobID + ".csv"
+	if err := p.Objects.Upload(ctx, key, name, nil); err != nil {
+		logger.Error("profile upload failed", "key", key, "error", err.Error())
+	}
+}
+
+func profileValues(qm QueueMessage, gdalProfile string, obs *profileObs, peakDisk int64, diskDone bool) []string {
+	wall, cpu, rss, features, ogrinfo := "", "", "", "", ""
+	if obs.sawConvert {
+		wall = strconv.FormatInt(int64(obs.stats.WallMS), 10)
+		cpu = strconv.FormatFloat(obs.stats.CPUS, 'f', -1, 64)
+		rss = strconv.FormatInt(measure.CeilMiB(obs.stats.ProfilePeakRSSBytes), 10)
+	}
+	if obs.convertOK {
+		features = strconv.FormatInt(obs.stats.FeatureCount, 10)
+		ogrinfo = strconv.FormatFloat(obs.stats.OgrinfoMS, 'f', -1, 64)
+	}
+	outBytes, packageMS, disk := "", "", ""
+	if obs.sawPackage {
+		outBytes = strconv.FormatInt(obs.outputBytes, 10)
+		packageMS = strconv.FormatInt(obs.packageMS, 10)
+	}
+	if diskDone {
+		disk = strconv.FormatInt(measure.CeilMiB(peakDisk), 10)
+	}
+	return []string{
+		qm.RunID, qm.JobID, obs.dataset, qm.OutputFormat, gdalProfile,
+		strconv.FormatInt(qm.InputBytes, 10), outBytes, features,
+		wall, packageMS, cpu, rss, disk, ogrinfo, obs.errCode,
+	}
+}
+
 // fail records a failed attempt. permanent ends the job as FAILED (retrying will not
 // help). The message stays on the queue for redelivery either way; a DLQ is a later step.
-func (p *Processor) fail(ctx context.Context, jobID string, epoch int64, code string, cause error, permanent bool, logger *slog.Logger) {
+// obs, when PROFILE=1 is on, marks this attempt's profile row with code.
+func (p *Processor) fail(ctx context.Context, jobID string, epoch int64, code string, cause error, permanent bool, logger *slog.Logger, obs *profileObs) {
+	if obs != nil {
+		obs.write = true
+		obs.errCode = code
+	}
 	logger.Error("job attempt failed", "code", code, "error", cause.Error())
 	if err := p.Store.Fail(ctx, jobID, epoch, code, permanent); err != nil {
 		logger.Error("record failure failed", "error", err.Error())

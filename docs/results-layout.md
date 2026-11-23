@@ -24,6 +24,14 @@ outputs/<run>/<job_id>/<run>_<dataset>_<first 8 characters of job_id>.gpkg | .sh
 - Each object's S3 user metadata repeats `run-id`, `job-id`, `dataset-id` and `output-format`.
 - Outputs live only in the account's bucket and are deleted by `terraform destroy`; a run's lasting record is its results folder (`verify.json` checks every output).
 
+A profiling run (`PROFILE=1` on the worker) also writes one object per job:
+
+```
+profiles/<run>/<job_id>.csv
+```
+
+Each object is one header and one row. A later attempt of the same job replaces that object. `tools/collect.py` downloads every object under the prefix and writes `profile.csv` in the results folder, with the header once. Those objects are deleted with the stack, same as the outputs. A run that did not profile has no objects there, and no `profile.csv`.
+
 ## Files in every AWS run folder
 
 | File | Written by | Contents |
@@ -37,6 +45,9 @@ outputs/<run>/<job_id>/<run>_<dataset>_<first 8 characters of job_id>.gpkg | .sh
 | `resources.csv` | sampler | Container Insights CPU and memory per task |
 | `locust_*.csv` | Locust | submit-side stats only; latency never comes from here |
 | `verify.json` | `tools/verify.py` | per-job output checks; the run fails on any failure |
+| `profile.csv` | `tools/collect.py`, and only when `profiles/<run>/` has objects | one row per profiled job, joined from `profiles/<run>/<job_id>.csv`: `run_id, job_id, dataset_id, output_format, gdal_profile, input_bytes, output_bytes, output_features, wall_ms, package_ms, cpu_s, peak_rss_mb, peak_disk_mb, ogrinfo_ms, error`. `peak_rss_mb` is the /proc sample rounded up to whole MiB. `peak_disk_mb` is the whole job directory, same rounding. `error` is empty on success. A cell is empty when that stage did not run. Absent when the run did not profile |
+
+`profile.csv` is the exception to the table above: a run with profiling off does not get the file. Local Compose runs use the same collector, so the file lands in `results/<run>/` there too.
 
 A run that could not finish has an `INCOMPLETE` file in its folder explaining why.
 

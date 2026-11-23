@@ -24,7 +24,8 @@ In order:
   3. Start the samplers: queues.csv, tasks.csv and, locally, resources.csv.
   4. Replay the trace with Locust (open loop): locust_*.csv.
   5. Wait until every job is terminal, or until the trace's length plus --drain-s.
-  6. collect.py (jobs.csv, attempts.csv), resources.csv from Container Insights on AWS, then verify.py.
+  6. collect.py (jobs.csv, attempts.csv, and profile.csv when the run uploaded profile rows),
+     resources.csv from Container Insights on AWS, then verify.py.
   7. cost.py, when it exists: the costs.csv row and a check for stacks left running.
 events.csv records each step's time; the task killer appends its kills to the same file.
 
@@ -309,6 +310,7 @@ class Local:
         self.env = {**os.environ, **LOCAL_ENDPOINTS}
         self.base_url = "http://localhost:8080"
         self.table = "jobs"
+        self.bucket = "gc-local"
         self.catalog = REPO / "datasets/local/datasets.csv"
         self.queues = dict(LOCAL_QUEUES)
         self.owner = None
@@ -363,6 +365,7 @@ class AWS:
         self.out = out
         self.base_url = out["alb_url"]
         self.table = out["jobs_table"]
+        self.bucket = out["bucket"]
         self.catalog = REPO / "datasets/datasets.csv"
         self.prefix = out["prefix"]
         self.owner = self.prefix.removeprefix("gc-")
@@ -596,6 +599,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if subprocess.run([sys.executable, "tools/collect.py", "--run-id", args.run, "--out", str(folder / "jobs.csv"),
                            "--attempts-out", str(folder / "attempts.csv"),
+                           "--profile-out", str(folder / "profile.csv"),
+                           "--bucket", target.bucket,
                            "--table", target.table], cwd=REPO, env=target.env).returncode != 0:
             raise RuntimeError("collect.py failed")
         target.after_run(folder, started_at, ended_at)

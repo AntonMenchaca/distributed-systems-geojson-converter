@@ -148,15 +148,25 @@ func parseProcStatusRSS(status string) (int64, error) {
 	return 0, fmt.Errorf("measure: VmRSS missing")
 }
 
-// TODO(2.1): Define profile.csv's header here, as a []string, once the column
-// names are copied from geojson-plan-design.md's Phase 2 table. Order in that
-// slice is the file's column order. Leave it unset until those names exist;
-// WriteProfile refuses an empty header so a guessed schema cannot be written.
+// ProfileHeader is the profile.csv column order from the Phase 2 table.
+// One object is one header plus one row; collection joins objects into the run file.
+var ProfileHeader = []string{
+	"run_id", "job_id", "dataset_id", "output_format", "gdal_profile",
+	"input_bytes", "output_bytes", "output_features",
+	"wall_ms", "package_ms", "cpu_s", "peak_rss_mb", "peak_disk_mb",
+	"ogrinfo_ms", "error",
+}
+
+// CeilMiB rounds bytes up to whole mebibytes. Zero stays zero.
+func CeilMiB(b int64) int64 {
+	if b <= 0 {
+		return 0
+	}
+	return (b + (1<<20 - 1)) >> 20
+}
 
 // WriteProfile writes one profile.csv record: the header, then one already-measured
-// row. header is the column list from the project plan's Phase 2 table. This
-// function does not choose those names. An empty header is refused so a guessed
-// schema cannot be written. len(row) must match len(header).
+// row. header is ProfileHeader. An empty header is refused. len(row) must match len(header).
 func WriteProfile(w io.Writer, header, row []string) error {
 	if len(header) == 0 {
 		return fmt.Errorf("measure: profile.csv header is unset; it comes from the project plan Phase 2 table")
