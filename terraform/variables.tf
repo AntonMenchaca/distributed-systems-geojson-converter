@@ -75,10 +75,6 @@ variable "queue_layout" {
     condition     = contains(["single", "by-size"], var.queue_layout)
     error_message = "queue_layout: single or by-size."
   }
-  validation {
-    condition     = var.queue_layout == "single"
-    error_message = "queue_layout: only single is implemented so far."
-  }
 }
 
 variable "sched_policy" {
@@ -89,8 +85,10 @@ variable "sched_policy" {
     error_message = "sched_policy: fcfs, small-first or weighted-3:1."
   }
   validation {
-    condition     = var.sched_policy == "fcfs"
-    error_message = "sched_policy: only fcfs is implemented so far."
+    # small-first and weighted-3:1 choose between jobs-small and jobs-large, so they need
+    # by-size queues read by one shared pool. fcfs reads exactly one queue.
+    condition     = (var.sched_policy == "fcfs") == !(var.queue_layout == "by-size" && var.pool_layout == "shared")
+    error_message = "sched_policy: fcfs reads one queue (queue_layout=single, or pool_layout=split); small-first and weighted-3:1 need queue_layout=by-size with pool_layout=shared."
   }
 }
 
@@ -102,8 +100,8 @@ variable "pool_layout" {
     error_message = "pool_layout: shared or split."
   }
   validation {
-    condition     = var.pool_layout == "shared"
-    error_message = "pool_layout: only shared is implemented so far."
+    condition     = var.pool_layout == "shared" || var.queue_layout == "by-size"
+    error_message = "pool_layout: split needs queue_layout=by-size, so each pool reads its own size queue."
   }
 }
 
@@ -251,6 +249,28 @@ variable "worker_count" {
   validation {
     condition     = var.worker_count >= 0 && floor(var.worker_count) == var.worker_count
     error_message = "worker_count: a whole number >= 0."
+  }
+}
+
+# POOL_LAYOUT=split: the two pools' sizes. They must add up to worker_count, so a split run
+# has the same total budget as the shared run it is compared with.
+variable "worker_count_small" {
+  description = "POOL_LAYOUT=split: tasks in the small pool (reads jobs-small)"
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.pool_layout == "shared" || (var.worker_count_small >= 1 && var.worker_count_small + var.worker_count_large == var.worker_count)
+    error_message = "worker_count_small: with pool_layout=split, each pool needs at least 1 task and worker_count_small + worker_count_large must equal worker_count (${var.worker_count})."
+  }
+}
+
+variable "worker_count_large" {
+  description = "POOL_LAYOUT=split: tasks in the large pool (reads jobs-large)"
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.pool_layout == "shared" || var.worker_count_large >= 1
+    error_message = "worker_count_large: with pool_layout=split, the large pool needs at least 1 task."
   }
 }
 
