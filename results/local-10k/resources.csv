@@ -1,0 +1,3 @@
+ts,task_id,service,cpu_pct,mem_mb
+2026-11-23T14:59:36.680Z,78eccac9ab35,api,0.0,18.11
+2026-11-23T14:59:36.680Z,c4c059d082ff,worker,0.08,4.781
