@@ -1,0 +1,37 @@
+{
+  "run_id": "p2-shape-samuel-s11",
+  "phase": "p2",
+  "owner": "samuel",
+  "account_prefix": "gc-samuel",
+  "git_sha": "83da6dcbd142827424b885767431620cd79e17f0-dirty",
+  "gdal_version": "3.13.3",
+  "trace_file": "traces/p2-shape.csv",
+  "seed": 11,
+  "knobs": {
+    "ADMISSION": "off",
+    "COMMIT_MODE": "blind",
+    "DLQ_MAX_RECEIVES": "0",
+    "GDAL_PROFILE": "defaults",
+    "INPUT_MODE": "download",
+    "LEASE_MODE": "fixed-12h",
+    "POOL_LAYOUT": "shared",
+    "QUEUE_LAYOUT": "single",
+    "SCALER": "fixed",
+    "SCALER_COOLDOWN": "none",
+    "SCHED_POLICY": "fcfs",
+    "SHP_LIMIT_MODE": "none",
+    "SHUTDOWN_MODE": "ignore",
+    "SPECULATE": "off",
+    "SPLIT_K": "1",
+    "TASK_SHAPE": "1x2-8-20gb",
+    "UPLOAD_MODE": "proxy-buffer",
+    "WORKER_CONCURRENCY": "fixed-4",
+    "WORKER_IMAGE": "gdal-full"
+  },
+  "task_defs": {
+    "api": "arn:aws:ecs:us-east-1:175602030931:task-definition/gc-samuel-api-task:6",
+    "worker": "arn:aws:ecs:us-east-1:175602030931:task-definition/gc-samuel-worker-task:10"
+  },
+  "started_at": "2026-11-23T19:10:12.088Z",
+  "estimates_version": "v0"
+}

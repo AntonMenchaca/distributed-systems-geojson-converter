@@ -1,0 +1,7 @@
+run_id,job_id,epoch,task_id,started_at,ended_at,outcome,error_code,peak_rss_mb,cpu_s,peak_disk_mb
+p2-gdal-gpkg-samuel-s11,0fcfbd6d-a107-44eb-a46e-38b8d965de8f,1,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/3737244ec5634997ac18c8e4c0e8e6b5,2026-11-23T19:55:26.697Z,2026-11-23T19:55:40.688Z,SUCCEEDED,,80,12.894256,56
+p2-gdal-gpkg-samuel-s11,5db0f42a-ef10-4741-b2f6-581caa268a08,1,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/3737244ec5634997ac18c8e4c0e8e6b5,2026-11-23T19:58:00.790Z,2026-11-23T20:24:48.347Z,SUCCEEDED,,1055,1522.640784,6332
+p2-gdal-gpkg-samuel-s11,ff4618bb-320f-4106-8531-556a03369dcc,1,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/3737244ec5634997ac18c8e4c0e8e6b5,2026-11-23T20:24:50.837Z,2026-11-23T20:31:45.458Z,SUCCEEDED,,327,393.15723,1627
+p2-gdal-gpkg-samuel-s11,615649e0-6d95-4081-bfbb-b85655281ea6,1,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/3737244ec5634997ac18c8e4c0e8e6b5,2026-11-23T20:24:49.126Z,2026-11-23T20:24:50.800Z,SUCCEEDED,,71,1.353587,6
+p2-gdal-gpkg-samuel-s11,921964fd-20aa-4bbd-835d-af731ae27a00,1,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/3737244ec5634997ac18c8e4c0e8e6b5,2026-11-23T19:55:40.741Z,2026-11-23T19:55:41.153Z,SUCCEEDED,,68,0.185798,1
+p2-gdal-gpkg-samuel-s11,92e6e353-eee3-48e3-9e7b-82c587e0dc30,1,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/3737244ec5634997ac18c8e4c0e8e6b5,2026-11-23T19:55:41.214Z,2026-11-23T19:58:00.620Z,SUCCEEDED,,157,131.44683,542
