@@ -145,6 +145,7 @@ module "api" {
     GIN_MODE     = "release"
     QUEUE_LAYOUT = var.queue_layout
     COMMIT_MODE  = var.commit_mode
+    DATASETS_CSV = "datasets/datasets.csv"
   })
 
   # ECS can only register tasks in a target group that a listener already forwards to.
