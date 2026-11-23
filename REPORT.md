@@ -4,7 +4,7 @@ Fill every **Prediction** before the first `p2-`* run, then leave those paragrap
 
 Columns to compare: `wall_ms` (ogr2ogr only), `peak_rss_mb` (that process), `peak_disk_mb` (input + output, plus the zip for Shapefile and FileGDB), output bytes ÷ input bytes, `error`.
 
-Locked at: ________ · git SHA: ________
+Locked at: 11/23/26 11:46am · git SHA: f602c4c
 
 ## p2-size
 
