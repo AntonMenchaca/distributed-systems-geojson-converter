@@ -10,11 +10,13 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
 
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/jobstore"
+	"github.com/AntonMenchaca/distributed-systems-geojson-converter/worker/internal/chaos"
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/worker/internal/gdal"
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/worker/internal/measure"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -91,7 +93,7 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	jobDir := filepath.Join(p.WorkDir, fmt.Sprintf("%s-%d", qm.JobID, epoch))
 	defer os.RemoveAll(jobDir)
 	if err := os.MkdirAll(jobDir, 0o755); err != nil {
-		p.fail(ctx, qm.JobID, epoch, "WORKDIR_FAILED", err, logger)
+		p.fail(ctx, qm.JobID, epoch, "WORKDIR_FAILED", err, false, logger)
 		return
 	}
 
@@ -111,17 +113,38 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	t := time.Now()
 	in := filepath.Join(jobDir, "in.geojson")
 	if err := p.Objects.Download(ctx, qm.InputKey, in); err != nil {
-		p.fail(ctx, qm.JobID, epoch, "DOWNLOAD_FAILED", err, logger)
+		p.fail(ctx, qm.JobID, epoch, "DOWNLOAD_FAILED", err, false, logger)
 		return
 	}
 	downloadMS := time.Since(t).Milliseconds()
 
+	guard, err := chaos.New(os.Getenv, qm.Chaos, epoch)
+	if err != nil {
+		p.fail(ctx, qm.JobID, epoch, "CHAOS_INVALID", err, true, logger)
+		return
+	}
+	if guard.Enabled() && len(qm.Chaos) > 0 && string(qm.Chaos) != "null" {
+		logger.Info("chaos", "flags", string(qm.Chaos))
+	}
+	// pause_s freezes the claimed job, and heartbeats with it, before ogr2ogr starts.
+	// crash_at then kills at a fraction of convert progress on epoch 1 only; a later
+	// claim converts through. slow stretches the gaps between those ticks without
+	// stopping heartbeats.
+	if err := guard.Hold(ctx); err != nil {
+		logger.Error("chaos pause interrupted", "error", err.Error())
+		return
+	}
+	convertCtx := ctx
+	if guard.WantsProgress() {
+		convertCtx = gdal.WithProgress(ctx, guard.OnProgress)
+	}
+
 	outDir := filepath.Join(jobDir, "out")
 	target := outputTarget(qm)
-	stats, err := p.Convert(ctx, in, outDir, qm.OutputFormat, p.Profile, target.Target)
+	stats, err := p.Convert(convertCtx, in, outDir, qm.OutputFormat, p.Profile, target.Target)
 	if err != nil {
 		finishDisk()
-		p.fail(ctx, qm.JobID, epoch, "CONVERT_FAILED", err, logger)
+		p.fail(ctx, qm.JobID, epoch, "CONVERT_FAILED", err, false, logger)
 		return
 	}
 
@@ -130,21 +153,26 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	file, err := gdal.Package(gdal.OutputPath(outDir, qm.OutputFormat, target.Target), qm.OutputFormat)
 	finishDisk()
 	if err != nil {
-		p.fail(ctx, qm.JobID, epoch, "PACKAGE_FAILED", err, logger)
+		p.fail(ctx, qm.JobID, epoch, "PACKAGE_FAILED", err, false, logger)
 		return
 	}
 	packageMS := time.Since(t).Milliseconds()
 	info, err := os.Stat(file)
 	if err != nil {
-		p.fail(ctx, qm.JobID, epoch, "PACKAGE_FAILED", err, logger)
+		p.fail(ctx, qm.JobID, epoch, "PACKAGE_FAILED", err, false, logger)
 		return
 	}
 
 	t = time.Now()
 	key := "outputs/" + qm.RunID + "/" + qm.JobID + "/" + filepath.Base(file)
-	meta := map[string]string{"run-id": qm.RunID, "job-id": qm.JobID, "dataset-id": target.Dataset, "output-format": qm.OutputFormat}
+	// epoch is this claim's. verify compares it with the SUCCEEDED attempt so a stale
+	// upload that overwrote the object is visible. S3 user-metadata values are strings.
+	meta := map[string]string{
+		"run-id": qm.RunID, "job-id": qm.JobID, "dataset-id": target.Dataset,
+		"output-format": qm.OutputFormat, "epoch": strconv.FormatInt(epoch, 10),
+	}
 	if err := p.Objects.Upload(ctx, key, file, meta); err != nil {
-		p.fail(ctx, qm.JobID, epoch, "UPLOAD_FAILED", err, logger)
+		p.fail(ctx, qm.JobID, epoch, "UPLOAD_FAILED", err, false, logger)
 		return
 	}
 	uploadMS := time.Since(t).Milliseconds()
@@ -196,10 +224,11 @@ func outputTarget(qm QueueMessage) jobOutput {
 
 var nonLayerChars = regexp.MustCompile(`[^A-Za-z0-9_]`)
 
-// fail records a transient failure. The message stays on the queue for redelivery.
-func (p *Processor) fail(ctx context.Context, jobID string, epoch int64, code string, cause error, logger *slog.Logger) {
+// fail records a failed attempt. permanent ends the job as FAILED (retrying will not
+// help). The message stays on the queue for redelivery either way; a DLQ is a later step.
+func (p *Processor) fail(ctx context.Context, jobID string, epoch int64, code string, cause error, permanent bool, logger *slog.Logger) {
 	logger.Error("job attempt failed", "code", code, "error", cause.Error())
-	if err := p.Store.Fail(ctx, jobID, epoch, code, false); err != nil {
+	if err := p.Store.Fail(ctx, jobID, epoch, code, permanent); err != nil {
 		logger.Error("record failure failed", "error", err.Error())
 	}
 }

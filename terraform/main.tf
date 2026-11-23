@@ -188,5 +188,7 @@ module "worker" {
     GDAL_PROFILE       = var.gdal_profile
     SHUTDOWN_MODE      = var.shutdown_mode
     WORK_DIR           = "/tmp/jobs"
+    # Not a knob. 0 leaves crash_at / pause_s / slow on a trace inert. T-fail sets 1.
+    CHAOS_ENABLED = var.chaos_enabled
   })
 }

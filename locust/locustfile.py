@@ -20,6 +20,7 @@ import time
 
 import gevent
 from locust import HttpUser, events, task
+from locust.stats import CSV_STATS_INTERVAL_SEC
 
 MAX_429_RETRIES = 20
 
@@ -88,6 +89,9 @@ class TraceUser(HttpUser):
     def finish(self, greenlets) -> None:
         gevent.joinall(greenlets)
         print("trace replay:", json.dumps(self.result), flush=True)
+        # Locust's --csv files are rewritten once per CSV_STATS_INTERVAL_SEC and not again at
+        # shutdown, so quitting right away drops the requests answered in the last interval.
+        gevent.sleep(2 * CSV_STATS_INTERVAL_SEC)
         self.environment.runner.quit()
 
     @task

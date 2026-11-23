@@ -122,12 +122,12 @@ func (h *Handlers) create(c *gin.Context) {
 		return
 	}
 
-	class, work, mem := router.SizeClass(ds.Bytes, req.OutputFormat, h.cfg.Est)
-	queue, err := router.Queue(h.cfg.Layout, class)
+	route, err := router.Route(h.cfg.Layout, ds.Bytes, req.OutputFormat, h.cfg.Est)
 	if err != nil {
 		h.internal(c, "ROUTE_FAILED", err)
 		return
 	}
+	class, queue, work, mem := route.Class, route.Queue, route.EstWorkS, route.EstMemMB
 	job := jobstore.Job{
 		JobID:        uuid.NewString(),
 		RunID:        req.RunID,

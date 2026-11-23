@@ -149,15 +149,16 @@ func TestProcessUploadsShapefileAsOneZip(t *testing.T) {
 	}
 }
 
-// Each output object carries its run, job, dataset and format, so a file found in S3 can be
-// traced without the job record.
+// Each output object carries its run, job, dataset, format and attempt epoch, so a file
+// found in S3 can be traced without the job record, and a stale upload can be told from
+// the attempt that succeeded. Claim returns epoch 1 here.
 func TestProcessTagsOutputWithMetadata(t *testing.T) {
 	tr := &trace{}
 	p := newProcessor(t, tr, &fakeStore{tr: tr}, nil)
 	objs := fakeObjects{tr: tr, meta: map[string]map[string]string{}}
 	p.Objects = objs
 	p.Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
-	want := map[string]string{"run-id": "local-x", "job-id": "j1", "dataset-id": "dc", "output-format": "gpkg"}
+	want := map[string]string{"run-id": "local-x", "job-id": "j1", "dataset-id": "dc", "output-format": "gpkg", "epoch": "1"}
 	if got := objs.meta["outputs/local-x/j1/local-x_dc_j1.gpkg"]; !maps.Equal(got, want) {
 		t.Fatalf("metadata %v, want %v", got, want)
 	}

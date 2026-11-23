@@ -1,0 +1,37 @@
+{
+  "run_id": "p1-smoke2-anton-s11",
+  "phase": "p1",
+  "owner": "anton",
+  "account_prefix": "gc-anton",
+  "git_sha": "1e9fd1efc528c2d61b8cef7bf215a36fce43211c",
+  "gdal_version": "3.13.3",
+  "trace_file": "traces/p1-smoke-s11.csv",
+  "seed": 11,
+  "knobs": {
+    "ADMISSION": "off",
+    "COMMIT_MODE": "blind",
+    "DLQ_MAX_RECEIVES": "0",
+    "GDAL_PROFILE": "defaults",
+    "INPUT_MODE": "download",
+    "LEASE_MODE": "fixed-30s",
+    "POOL_LAYOUT": "shared",
+    "QUEUE_LAYOUT": "single",
+    "SCALER": "fixed",
+    "SCALER_COOLDOWN": "none",
+    "SCHED_POLICY": "fcfs",
+    "SHP_LIMIT_MODE": "none",
+    "SHUTDOWN_MODE": "ignore",
+    "SPECULATE": "off",
+    "SPLIT_K": "1",
+    "TASK_SHAPE": "1x1-4-20gb",
+    "UPLOAD_MODE": "proxy-buffer",
+    "WORKER_CONCURRENCY": "fixed-4",
+    "WORKER_IMAGE": "gdal-full"
+  },
+  "task_defs": {
+    "api": "arn:aws:ecs:us-east-1:148831131433:task-definition/gc-anton-api-task:2",
+    "worker": "arn:aws:ecs:us-east-1:148831131433:task-definition/gc-anton-worker-task:2"
+  },
+  "started_at": "2026-11-22T16:59:27.549Z",
+  "estimates_version": "v0"
+}

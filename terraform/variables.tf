@@ -322,6 +322,16 @@ variable "split_k" {
   }
 }
 
+variable "chaos_enabled" {
+  type        = string
+  default     = "0"
+  description = "Arms worker fault injection (CHAOS_ENABLED). Not a knob: per-job flags come from the trace. 0 leaves them inert."
+  validation {
+    condition     = contains(["0", "1"], var.chaos_enabled)
+    error_message = "chaos_enabled must be 0 or 1."
+  }
+}
+
 variable "speculate" {
   type    = string
   default = "off"

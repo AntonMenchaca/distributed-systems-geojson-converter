@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/jobstore"
+	"github.com/AntonMenchaca/distributed-systems-geojson-converter/worker/internal/chaos"
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/worker/internal/gdal"
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/worker/internal/loop"
 
@@ -203,7 +204,8 @@ func main() {
 	}
 	logger.Info("starting worker", "concurrency", cfg.Concurrency, "lease_mode", cfg.LeaseMode,
 		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "shutdown_mode", cfg.ShutdownMode,
-		"queue_layout", cfg.QueueLayout, "sched_policy", cfg.SchedPolicy, "worker_pool", cfg.Pool, "task_id", taskID)
+		"queue_layout", cfg.QueueLayout, "sched_policy", cfg.SchedPolicy, "worker_pool", cfg.Pool,
+		"chaos_enabled", chaos.Enabled(os.Getenv), "task_id", taskID)
 	loop.New(loop.Config{
 		SQS: sqsClient, Policy: policy, QueueURL: cfg.QueueURL, Concurrency: cfg.Concurrency, WaitSeconds: 20,
 		VisibilityTimeoutS: cfg.VisibilityTimeoutS, Handle: proc.Handle, Logger: logger,
