@@ -205,7 +205,6 @@ func main() {
 		convert = gdal.ConvertProfile
 	}
 	proc := &loop.Processor{
-<<<<<<< HEAD
 		Store:          jobstore.NewDynamoStore(dynamodb.NewFromConfig(awsCfg), cfg.JobsTable, jobstore.CommitMode(cfg.CommitMode)),
 		SQS:            sqsClient,
 		QueueURL:       cfg.QueueURL,
@@ -227,22 +226,6 @@ func main() {
 		"shutdown_mode", cfg.ShutdownMode,
 		"queue_layout", cfg.QueueLayout, "sched_policy", cfg.SchedPolicy, "worker_pool", cfg.Pool,
 		"chaos_enabled", chaos.Enabled(os.Getenv), "task_id", taskID)
-=======
-		Store:    jobstore.NewDynamoStore(dynamodb.NewFromConfig(awsCfg), cfg.JobsTable, jobstore.CommitMode(cfg.CommitMode)),
-		SQS:      sqsClient,
-		QueueURL: cfg.QueueURL,
-		Objects:  loop.S3Objects{Client: s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = cfg.S3PathStyle }), Bucket: cfg.Bucket},
-		Convert:  convert,
-		WorkDir:  cfg.WorkDir,
-		TaskID:   taskID,
-		Profile:  cfg.Profile,
-		Logger:   logger,
-		Now:      time.Now,
-	}
-	logger.Info("starting worker", "concurrency", cfg.Concurrency, "lease_mode", cfg.LeaseMode,
-		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "profile", cfg.MeasureProfile,
-		"shutdown_mode", cfg.ShutdownMode, "chaos_enabled", chaos.Enabled(os.Getenv), "task_id", taskID)
->>>>>>> 80779f1 (implement profiling ability)
 	loop.New(loop.Config{
 		SQS: sqsClient, Policy: policy, QueueURL: cfg.QueueURL, Concurrency: cfg.Concurrency, WaitSeconds: 20,
 		VisibilityTimeoutS: cfg.VisibilityTimeoutS, Handle: proc.Handle, Logger: logger,

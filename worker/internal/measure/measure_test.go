@@ -5,10 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-<<<<<<< HEAD
 	"slices"
-=======
->>>>>>> 80779f1 (implement profiling ability)
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -80,7 +77,6 @@ func TestParseProcStatusRSS(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 func TestProfileHeaderIsThePhase2Table(t *testing.T) {
 	want := []string{
 		"run_id", "job_id", "dataset_id", "output_format", "gdal_profile",
@@ -99,8 +95,6 @@ func TestCeilMiB(t *testing.T) {
 	}
 }
 
-=======
->>>>>>> 80779f1 (implement profiling ability)
 func TestWriteProfileRefusesUnsetHeader(t *testing.T) {
 	var buf bytes.Buffer
 	if err := WriteProfile(&buf, nil, nil); err == nil {

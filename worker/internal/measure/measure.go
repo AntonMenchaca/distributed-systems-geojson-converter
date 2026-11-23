@@ -148,7 +148,6 @@ func parseProcStatusRSS(status string) (int64, error) {
 	return 0, fmt.Errorf("measure: VmRSS missing")
 }
 
-<<<<<<< HEAD
 // ProfileHeader is the profile.csv column order from the Phase 2 table.
 // One object is one header plus one row; collection joins objects into the run file.
 var ProfileHeader = []string{
@@ -168,12 +167,6 @@ func CeilMiB(b int64) int64 {
 
 // WriteProfile writes one profile.csv record: the header, then one already-measured
 // row. header is ProfileHeader. An empty header is refused. len(row) must match len(header).
-=======
-// WriteProfile writes one profile.csv record: the header, then one already-measured
-// row. header is the column list from the project plan's Phase 2 table. This
-// function does not choose those names. An empty header is refused so a guessed
-// schema cannot be written. len(row) must match len(header).
->>>>>>> 80779f1 (implement profiling ability)
 func WriteProfile(w io.Writer, header, row []string) error {
 	if len(header) == 0 {
 		return fmt.Errorf("measure: profile.csv header is unset; it comes from the project plan Phase 2 table")

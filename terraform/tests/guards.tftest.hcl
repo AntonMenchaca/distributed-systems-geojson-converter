@@ -27,11 +27,7 @@ run "learner_lab_session_plans" {
     error_message = "baseline knobs changed: ${jsonencode(output.knobs)}"
   }
   assert {
-<<<<<<< HEAD
     condition     = module.worker["worker"].task_count == 4 && module.worker["worker"].cpu == 1024 && module.worker["worker"].memory == 4096 && module.worker["worker"].ephemeral_storage_gb == 20 && module.worker["worker"].profile == "0"
-=======
-    condition     = module.worker.task_count == 4 && module.worker.cpu == 1024 && module.worker.memory == 4096 && module.worker.ephemeral_storage_gb == 20 && module.worker.profile == "0"
->>>>>>> 80779f1 (implement profiling ability)
     error_message = "baseline worker is not 4 x (1 vCPU, 4 GB, 20 GB) with PROFILE off"
   }
 }
@@ -50,13 +46,8 @@ run "profiling_service_is_one_large_task" {
   }
 
   assert {
-<<<<<<< HEAD
     condition     = module.worker["worker"].task_count == 1 && module.worker["worker"].cpu == 4096 && module.worker["worker"].memory == 16384 && module.worker["worker"].ephemeral_storage_gb == 100 && module.worker["worker"].profile == "1"
     error_message = "profiling service is ${module.worker["worker"].task_count} tasks, ${module.worker["worker"].cpu} CPU units, ${module.worker["worker"].memory} MiB, ${module.worker["worker"].ephemeral_storage_gb} GiB, PROFILE=${module.worker["worker"].profile}; want 1 x 4096, 16384, 100, PROFILE=1"
-=======
-    condition     = module.worker.task_count == 1 && module.worker.cpu == 4096 && module.worker.memory == 16384 && module.worker.ephemeral_storage_gb == 100 && module.worker.profile == "1"
-    error_message = "profiling service is ${module.worker.task_count} tasks, ${module.worker.cpu} CPU units, ${module.worker.memory} MiB, ${module.worker.ephemeral_storage_gb} GiB, PROFILE=${module.worker.profile}; want 1 x 4096, 16384, 100, PROFILE=1"
->>>>>>> 80779f1 (implement profiling ability)
   }
   assert {
     condition     = output.knobs["TASK_SHAPE"] == "1x4-16-100gb"

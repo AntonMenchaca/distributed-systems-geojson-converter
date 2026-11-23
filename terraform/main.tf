@@ -181,11 +181,7 @@ module "worker" {
   role_arn             = data.aws_iam_role.lab_role.arn
   log_group_name       = module.worker_logs.log_group_name
   region               = var.aws_region
-<<<<<<< HEAD
   task_count           = var.profiling ? local.worker_task_count : each.value.count
-=======
-  task_count           = local.worker_task_count
->>>>>>> 80779f1 (implement profiling ability)
   cpu                  = local.worker_task_cpu
   memory               = local.worker_task_memory
   ephemeral_storage_gb = local.worker_task_ephemeral_gb
