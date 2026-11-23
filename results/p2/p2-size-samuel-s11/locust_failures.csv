@@ -1,0 +1,2 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,POST /jobs error,CatchResponseError('HTTP 400'),18,2026-11-23T18:34:02Z,2026-11-23T18:34:02Z

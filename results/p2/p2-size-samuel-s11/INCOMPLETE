@@ -1,0 +1,2 @@
+2026-11-23T18:35:45.045Z collection failed: collect.py failed
+The stack is still deployed. Rerun under a new run name, or `terraform destroy` before the session ends.

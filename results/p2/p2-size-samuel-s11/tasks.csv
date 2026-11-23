@@ -1,0 +1,3 @@
+task_id,service,last_status,started_at,stopped_at,stop_code,stopped_reason
+arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/9d5b32cffcfb4412946118cfa05a6076,gc-samuel-api,RUNNING,2026-11-23T17:20:47.167Z,,,
+arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/e125594bee534f63b1a27d8182ad1424,gc-samuel-worker,RUNNING,2026-11-23T18:24:31.625Z,,,

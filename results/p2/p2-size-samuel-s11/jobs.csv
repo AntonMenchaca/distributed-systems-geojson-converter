@@ -1,0 +1,1 @@
+job_id,run_id,output_format,size_class,queue,input_key,input_bytes,status,epoch,submitted_at,enqueued_at,first_started_at,started_at,heartbeat_at,committed_at,download_ms,convert_ms,package_ms,upload_ms,output_key,output_bytes,output_sha256,feature_count,error_code,attempt_count,finished_attempts,last_outcome,queue_wait_s,processing_s,turnaround_s,slowdown

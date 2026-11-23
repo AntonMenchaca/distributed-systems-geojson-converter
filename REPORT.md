@@ -82,9 +82,9 @@ Gap from the prediction:
 
 `ca-1m-seq` and `ca-all-seq` against the matching download rungs in `p2-size`. Streaming reads the input from S3 instead of writing `in.geojson` first. `INPUT_MODE=stream` is not implemented yet.
 
-**Prediction.** Peak disk versus the download: Disk would be significantly lower because we no longer need to download an entire fil e.
+**Prediction.** Peak disk versus the download: Disk would be significantly lower because we no longer need to download an entire fil e. Because INPUT_MODE=stream does not exist as a valid option, these runs will fail. 
 
-Wall time versus the download: Probably longer given the need for context switching.
+Wall time versus the download: Probably longer given the need for context switching, if implemented.
 
 **Compare (2.4).** What ran: 
 
