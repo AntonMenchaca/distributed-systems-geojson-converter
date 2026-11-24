@@ -126,12 +126,15 @@ def test_knobs_md_has_18_rows_with_baselines():
         assert row[baseline_col] not in ("", "—", "-"), row[0]
 
 
-def test_estimates_v0_shape():
+def test_estimates_v1_shape():
     est = json.loads((ROOT / "config" / "estimates.json").read_text())
-    assert est["version"] == "v0"
-    assert est["small_threshold_s"] == 30
+    assert est["version"] == "v1"
+    assert est["fitted_at"]
+    assert est["small_threshold_s"] > 0
     assert set(est["formats"]) == {"gpkg", "shp", "fgdb"}
     for fmt in est["formats"].values():
         for key in ("work_s", "mem_mb", "disk_mb"):
             assert len(fmt[key]) == 2 and all(isinstance(x, (int, float)) for x in fmt[key])
         assert fmt["out_ratio"] > 0
+        assert fmt["fit_r2"] is not None
+        assert 0 <= fmt["fit_r2"] <= 1

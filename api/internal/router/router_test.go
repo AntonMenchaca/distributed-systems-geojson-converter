@@ -10,8 +10,11 @@ func TestSizeClassUsesThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if est.Version != "v0" {
-		t.Fatalf("version %q; this test pins the v0 stub", est.Version)
+	if est.Version != "v1" {
+		t.Fatalf("version %q; this test pins the fitted v1 estimates", est.Version)
+	}
+	if est.FittedAt == nil || *est.FittedAt == "" {
+		t.Fatal("fitted_at: want a non-empty timestamp on v1")
 	}
 	for _, tc := range []struct {
 		bytes int64

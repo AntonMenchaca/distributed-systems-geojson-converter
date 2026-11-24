@@ -21,7 +21,7 @@ type FormatEstimate struct {
 	FitR2    *float64 `json:"fit_r2"`
 }
 
-// Estimates is config/estimates.json. v0 holds placeholder values, not yet fitted from measurements.
+// Estimates is config/estimates.json. v1 holds values fitted from Phase 2 profile.csv.
 type Estimates struct {
 	Version         string                    `json:"version"`
 	FittedAt        *string                   `json:"fitted_at"`
