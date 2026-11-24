@@ -37,4 +37,4 @@ Queue and policy combinations: `SCHED_POLICY=fcfs` reads one queue, so it pairs 
 
 ## Not knobs
 
-These are fixed settings, not experiment variables: `AWS_REGION`, `JOBS_TABLE`, `BUCKET`, queue URLs, `ESTIMATES_PATH`, `RUN_ID`, `WORKER_POOL` (set per pool by Terraform from `POOL_LAYOUT`), `CHAOS_ENABLED`. They are wiring, set by Compose or Terraform outputs. `CHAOS_ENABLED` is `0` or `1` and only arms the per-job flags already in the trace (`crash_at`, `pause_s`, `slow`). It is not a knob: a run does not flip it as the one change under test.
+These are fixed settings, not experiment variables: `AWS_REGION`, `JOBS_TABLE`, `BUCKET`, queue URLs, `ESTIMATES_PATH`, `S3_PRESIGN_ENDPOINT` (local only: the S3 address in presigned URLs), `RUN_ID`, `WORKER_POOL` (set per pool by Terraform from `POOL_LAYOUT`), `CHAOS_ENABLED`. They are wiring, set by Compose or Terraform outputs. `CHAOS_ENABLED` is `0` or `1` and only arms the per-job flags already in the trace (`crash_at`, `pause_s`, `slow`). It is not a knob: a run does not flip it as the one change under test.

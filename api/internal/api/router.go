@@ -19,10 +19,15 @@ const metricsPath = "/metrics"
 // answers as soon as the server is listening.
 const healthPath = "/health"
 
+// Registrar is a group of routes, such as the upload handlers.
+type Registrar interface {
+	Register(r gin.IRoutes)
+}
+
 // SetupRouter returns the service's Gin engine with every route and
 // middleware registered. Requests are logged to logger; job routes are
-// served by jobHandlers.
-func SetupRouter(logger *slog.Logger, jobHandlers *jobs.Handlers) *gin.Engine {
+// served by jobHandlers, and more route groups (uploads) by more.
+func SetupRouter(logger *slog.Logger, jobHandlers *jobs.Handlers, more ...Registrar) *gin.Engine {
 	router := gin.New()
 	// One JSON log line per request. Prometheus scrapes every few seconds and
 	// the load balancer checks health every 30; counting those would add
@@ -37,6 +42,9 @@ func SetupRouter(logger *slog.Logger, jobHandlers *jobs.Handlers) *gin.Engine {
 	}))
 
 	jobHandlers.Register(router)
+	for _, m := range more {
+		m.Register(router)
+	}
 	router.GET(metricsPath, gin.WrapH(promhttp.Handler()))
 	router.GET(healthPath, func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

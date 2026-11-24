@@ -11,6 +11,13 @@ row has been answered, Locust stops and prints a summary line.
 
 Request names in Locust's stats: "POST /jobs" (accepted), "POST /jobs 429" (asked to retry),
 "POST /jobs error" (anything else, including 4xx rejections).
+
+Uploads (step 5.1, for Phase 5a): --upload-mb 1,20,100,500 also runs UploadUser beside the trace.
+Each round uploads one file of each size (POST /uploads, then a PUT to its put_url: the API in the
+proxy modes, S3 directly in presigned mode), --upload-every-s apart, for --upload-rounds rounds.
+Stats names: "POST /uploads" and "PUT upload <n> MB". The file is n MB of zeros: Phase 5a measures
+the upload path, not conversion. UploadUser is not a separate Locust user class on purpose: with
+-u 1 Locust would pick one class by weight, and could skip the trace.
 """
 from __future__ import annotations
 
@@ -29,6 +36,9 @@ MAX_429_RETRIES = 20
 def _(parser):
     parser.add_argument("--trace", required=True, help="trace CSV from tools/gen_trace.py")
     parser.add_argument("--run-id", required=True, help="run_id for every job, e.g. local-mixed-1")
+    parser.add_argument("--upload-mb", default="", help="upload sizes in MB beside the trace, e.g. 1,20,100,500")
+    parser.add_argument("--upload-every-s", type=float, default=30.0, help="seconds between uploads")
+    parser.add_argument("--upload-rounds", type=int, default=1, help="how many times to upload each size")
 
 
 def load_rows(path: str) -> list[dict]:
@@ -51,6 +61,56 @@ def retry_after_s(headers, default: float = 1.0) -> float:
         return default
 
 
+class ZeroFile:
+    """n bytes of zeros, read in blocks: a large body that is never held in memory. len() and
+    tell() let requests send a Content-Length (S3 refuses chunked PUTs to presigned URLs)."""
+
+    def __init__(self, n: int):
+        self.n, self.pos = n, 0
+
+    def __len__(self) -> int:
+        return self.n - self.pos
+
+    def tell(self) -> int:
+        return 0
+
+    def read(self, size: int = -1) -> bytes:
+        left = self.n - self.pos
+        size = left if size is None or size < 0 else min(size, left)
+        self.pos += size
+        return bytes(size)
+
+
+class UploadUser:
+    """Uploads files through POST /uploads and its put_url, using the TraceUser's HTTP client."""
+
+    def __init__(self, client, result: dict):
+        self.client, self.result = client, result
+        result.update({"uploads_ok": 0, "uploads_failed": 0})
+
+    def upload(self, mb: int) -> None:
+        size = mb * 1_000_000
+        with self.client.post("/uploads", json={"bytes": size}, name="POST /uploads", catch_response=True) as resp:
+            if resp.status_code != 201:
+                resp.failure(f"HTTP {resp.status_code}")
+                self.result["uploads_failed"] += 1
+                return
+            put_url = resp.json()["put_url"]
+        with self.client.put(put_url, data=ZeroFile(size), headers={"Content-Type": "application/octet-stream"},
+                             name=f"PUT upload {mb} MB", catch_response=True) as resp:
+            if 200 <= resp.status_code < 300:
+                self.result["uploads_ok"] += 1
+            else:
+                resp.failure(f"HTTP {resp.status_code}")
+                self.result["uploads_failed"] += 1
+
+    def run(self, sizes: list[int], every_s: float, rounds: int) -> None:
+        for _ in range(rounds):
+            for mb in sizes:
+                self.upload(mb)
+                gevent.sleep(every_s)
+
+
 class TraceUser(HttpUser):
     started = False  # one replay per Locust process, however many users are spawned
 
@@ -64,6 +124,10 @@ class TraceUser(HttpUser):
         t0 = time.monotonic()
         greenlets = [gevent.spawn_later(max(0.0, float(r["t_offset_s"]) - (time.monotonic() - t0)),
                                         self.fire, r, opts.run_id) for r in rows]
+        if opts.upload_mb:
+            sizes = [int(x) for x in opts.upload_mb.split(",")]
+            uploader = UploadUser(self.client, self.result)
+            greenlets.append(gevent.spawn(uploader.run, sizes, opts.upload_every_s, opts.upload_rounds))
         gevent.spawn(self.finish, greenlets)
 
     def fire(self, row: dict, run_id: str) -> None:

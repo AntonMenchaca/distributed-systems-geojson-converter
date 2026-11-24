@@ -63,6 +63,9 @@ services:
       GIN_MODE: release
       QUEUE_LAYOUT: ${QUEUE_LAYOUT:-single}
       COMMIT_MODE: ${COMMIT_MODE:-blind}
+      UPLOAD_MODE: ${UPLOAD_MODE:-proxy-buffer}
+      # Presigned URLs must point at an S3 address the laptop can reach.
+      S3_PRESIGN_ENDPOINT: http://localhost:4566
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
