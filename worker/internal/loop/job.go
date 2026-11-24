@@ -172,9 +172,21 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 		obs.convertOK = true
 	}
 
+	// Before zipping: SHP_LIMIT_MODE=split-2gb cares about the largest .shp/.dbf,
+	// not the zip that output_bytes will record.
+	outPath := gdal.OutputPath(outDir, qm.OutputFormat, target.Target)
+	if obs != nil && qm.OutputFormat == "shp" {
+		if n, err := gdal.LargestShpComponent(outPath); err != nil {
+			logger.Error("largest shp component", "error", err.Error())
+		} else {
+			obs.sawMaxShp = true
+			obs.maxShpComponentBytes = n
+		}
+	}
+
 	// Packaging is timed apart from convert_ms, which is what the format comparisons use.
 	t = time.Now()
-	file, err := gdal.Package(gdal.OutputPath(outDir, qm.OutputFormat, target.Target), qm.OutputFormat)
+	file, err := gdal.Package(outPath, qm.OutputFormat)
 	finishDisk()
 	if err != nil {
 		p.fail(ctx, qm.JobID, epoch, "PACKAGE_FAILED", err, false, logger, obs)
@@ -259,15 +271,17 @@ var nonLayerChars = regexp.MustCompile(`[^A-Za-z0-9_]`)
 // profileObs is the part of one PROFILE=1 row this attempt has measured.
 // A column stays empty until the stage that produces it has run.
 type profileObs struct {
-	write       bool
-	dataset     string
-	errCode     string
-	sawConvert  bool
-	convertOK   bool
-	stats       gdal.Stats
-	sawPackage  bool
-	packageMS   int64
-	outputBytes int64
+	write                bool
+	dataset              string
+	errCode              string
+	sawConvert           bool
+	convertOK            bool
+	stats                gdal.Stats
+	sawPackage           bool
+	packageMS            int64
+	outputBytes          int64
+	sawMaxShp            bool
+	maxShpComponentBytes int64
 }
 
 // uploadProfile writes this attempt's row to profiles/<run_id>/<job_id>.csv.
@@ -312,17 +326,20 @@ func profileValues(qm QueueMessage, gdalProfile string, obs *profileObs, peakDis
 		features = strconv.FormatInt(obs.stats.FeatureCount, 10)
 		ogrinfo = strconv.FormatFloat(obs.stats.OgrinfoMS, 'f', -1, 64)
 	}
-	outBytes, packageMS, disk := "", "", ""
+	outBytes, maxShp, packageMS, disk := "", "", "", ""
 	if obs.sawPackage {
 		outBytes = strconv.FormatInt(obs.outputBytes, 10)
 		packageMS = strconv.FormatInt(obs.packageMS, 10)
+	}
+	if obs.sawMaxShp {
+		maxShp = strconv.FormatInt(obs.maxShpComponentBytes, 10)
 	}
 	if diskDone {
 		disk = strconv.FormatInt(measure.CeilMiB(peakDisk), 10)
 	}
 	return []string{
 		qm.RunID, qm.JobID, obs.dataset, qm.OutputFormat, gdalProfile,
-		strconv.FormatInt(qm.InputBytes, 10), outBytes, features,
+		strconv.FormatInt(qm.InputBytes, 10), outBytes, maxShp, features,
 		wall, packageMS, cpu, rss, disk, ogrinfo, obs.errCode,
 	}
 }

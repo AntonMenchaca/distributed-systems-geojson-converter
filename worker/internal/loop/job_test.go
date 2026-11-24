@@ -259,7 +259,7 @@ func TestProcessProfileUploadsOneRow(t *testing.T) {
 	want := map[string]string{
 		"run_id": "local-x", "job_id": "j1", "dataset_id": "dc", "output_format": "gpkg",
 		"gdal_profile": "defaults", "input_bytes": "10", "output_bytes": "3",
-		"output_features": "10000", "wall_ms": "10", "cpu_s": "0.25",
+		"max_shp_component_bytes": "", "output_features": "10000", "wall_ms": "10", "cpu_s": "0.25",
 		"peak_rss_mb": "3", "peak_disk_mb": "1", "ogrinfo_ms": "4.5", "error": "",
 	}
 	for k, v := range want {
@@ -272,6 +272,37 @@ func TestProcessProfileUploadsOneRow(t *testing.T) {
 	}
 	if store.result.OutputKey == "" || strings.Contains(strings.Join(tr.events, ","), "delete:rh") == false {
 		t.Fatalf("profile upload must not replace the output commit: %+v %s", store.result, tr.events)
+	}
+}
+
+func TestProcessProfileRecordsMaxShpComponent(t *testing.T) {
+	tr := &trace{}
+	p := newProcessor(t, tr, &fakeStore{tr: tr}, nil)
+	bodies := map[string]string{}
+	p.Objects = fakeObjects{tr: tr, bodies: bodies}
+	p.MeasureProfile = true
+	p.Convert = func(_ context.Context, in, outDir, format, profile string, tg gdal.Target) (gdal.Stats, error) {
+		out := gdal.OutputPath(outDir, format, tg)
+		if err := os.MkdirAll(out, 0o755); err != nil {
+			return gdal.Stats{}, err
+		}
+		if err := os.WriteFile(filepath.Join(out, tg.Layer+".shp"), make([]byte, 100), 0o644); err != nil {
+			return gdal.Stats{}, err
+		}
+		if err := os.WriteFile(filepath.Join(out, tg.Layer+".dbf"), make([]byte, 500), 0o644); err != nil {
+			return gdal.Stats{}, err
+		}
+		return gdal.Stats{WallMS: 5, CPUS: 0.1, FeatureCount: 10, ProfilePeakRSSBytes: 1 << 20}, nil
+	}
+	shpBody := strings.Replace(body, `"output_format":"gpkg"`, `"output_format":"shp"`, 1)
+	p.Handle(context.Background(), Message{Body: shpBody, ReceiptHandle: "rh"})
+
+	got := profileRecord(t, bodies["profiles/local-x/j1.csv"])
+	if got["max_shp_component_bytes"] != "500" {
+		t.Fatalf("max_shp_component_bytes = %q, want 500", got["max_shp_component_bytes"])
+	}
+	if got["output_bytes"] == "" || got["output_bytes"] == "500" {
+		t.Fatalf("output_bytes = %q, want the zip size (not the component)", got["output_bytes"])
 	}
 }
 
@@ -294,7 +325,7 @@ func TestProcessProfileWritesFailureRow(t *testing.T) {
 	want := map[string]string{
 		"run_id": "local-x", "job_id": "j1", "dataset_id": "dc", "output_format": "gpkg",
 		"gdal_profile": "defaults", "input_bytes": "10", "output_bytes": "",
-		"output_features": "", "wall_ms": "8", "package_ms": "", "cpu_s": "0.5",
+		"max_shp_component_bytes": "", "output_features": "", "wall_ms": "8", "package_ms": "", "cpu_s": "0.5",
 		"peak_rss_mb": "1", "peak_disk_mb": "1", "ogrinfo_ms": "", "error": "CONVERT_FAILED",
 	}
 	for k, v := range want {
@@ -313,7 +344,7 @@ func TestProcessProfileDownloadFailureLeavesConvertEmpty(t *testing.T) {
 	p.Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
 
 	got := profileRecord(t, bodies["profiles/local-x/j1.csv"])
-	for _, col := range []string{"output_bytes", "output_features", "wall_ms", "package_ms", "cpu_s", "peak_rss_mb", "ogrinfo_ms"} {
+	for _, col := range []string{"output_bytes", "max_shp_component_bytes", "output_features", "wall_ms", "package_ms", "cpu_s", "peak_rss_mb", "ogrinfo_ms"} {
 		if got[col] != "" {
 			t.Errorf("%s = %q, want empty", col, got[col])
 		}

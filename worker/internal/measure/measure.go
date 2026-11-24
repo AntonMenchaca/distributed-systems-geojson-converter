@@ -152,7 +152,7 @@ func parseProcStatusRSS(status string) (int64, error) {
 // One object is one header plus one row; collection joins objects into the run file.
 var ProfileHeader = []string{
 	"run_id", "job_id", "dataset_id", "output_format", "gdal_profile",
-	"input_bytes", "output_bytes", "output_features",
+	"input_bytes", "output_bytes", "max_shp_component_bytes", "output_features",
 	"wall_ms", "package_ms", "cpu_s", "peak_rss_mb", "peak_disk_mb",
 	"ogrinfo_ms", "error",
 }
