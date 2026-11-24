@@ -1,10 +1,55 @@
 {
-  "version": "v0",
-  "fitted_at": null,
-  "small_threshold_s": 30,
+  "version": "v1",
+  "fitted_at": "2026-11-24T02:19:52Z",
+  "small_threshold_s": 122.213689,
   "formats": {
-    "gpkg": { "work_s": [1.0, 0.10], "mem_mb": [150, 4.0], "disk_mb": [10, 2.5], "out_ratio": 0.6, "fit_r2": null },
-    "shp":  { "work_s": [1.0, 0.08], "mem_mb": [150, 4.0], "disk_mb": [10, 2.5], "out_ratio": 0.5, "fit_r2": null },
-    "fgdb": { "work_s": [1.0, 0.12], "mem_mb": [150, 4.0], "disk_mb": [10, 2.5], "out_ratio": 0.4, "fit_r2": null }
+    "gpkg": {
+      "work_s": [
+        0.0,
+        0.057149
+      ],
+      "mem_mb": [
+        67.486851,
+        0.287392
+      ],
+      "disk_mb": [
+        2.445893,
+        1.844627
+      ],
+      "out_ratio": 0.865636,
+      "fit_r2": 0.99996
+    },
+    "shp": {
+      "work_s": [
+        0.254543,
+        0.059125
+      ],
+      "mem_mb": [
+        63.893252,
+        0.206074
+      ],
+      "disk_mb": [
+        4.325957,
+        2.14383
+      ],
+      "out_ratio": 0.287423,
+      "fit_r2": 0.999966
+    },
+    "fgdb": {
+      "work_s": [
+        0.152018,
+        0.048667
+      ],
+      "mem_mb": [
+        55.232752,
+        0.283726
+      ],
+      "disk_mb": [
+        2.20235,
+        1.541364
+      ],
+      "out_ratio": 0.184679,
+      "fit_r2": 0.999994
+    }
   }
 }
