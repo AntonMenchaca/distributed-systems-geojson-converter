@@ -62,10 +62,6 @@ variable "upload_mode" {
     condition     = contains(["proxy-buffer", "proxy-stream", "presigned"], var.upload_mode)
     error_message = "upload_mode: proxy-buffer, proxy-stream or presigned."
   }
-  validation {
-    condition     = var.upload_mode == "proxy-buffer"
-    error_message = "upload_mode: only proxy-buffer is implemented so far."
-  }
 }
 
 variable "queue_layout" {

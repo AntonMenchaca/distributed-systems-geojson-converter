@@ -1,0 +1,3 @@
+proxy-buffer put_url=http://localhost:8080/uploads/0822ec48-48b7-4b60-8aff-1a41a6e907cf put=201 stored_bytes=20000000
+proxy-stream put_url=http://localhost:8080/uploads/44fe7a7c-1e6e-4273-b396-3cde71a8bd60 put=201 stored_bytes=20000000
+presigned put_url=http://localhost:4566/gc-local/uploads/598f086a-be36-44d9-b03c-b4b41423ff23.geojson put=200 stored_bytes=20000000

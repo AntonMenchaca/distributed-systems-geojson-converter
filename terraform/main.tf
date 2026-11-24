@@ -152,6 +152,7 @@ module "api" {
     GIN_MODE     = "release"
     QUEUE_LAYOUT = var.queue_layout
     COMMIT_MODE  = var.commit_mode
+    UPLOAD_MODE  = var.upload_mode
     # Full catalog (H.1), not datasets/local (Compose smoke only). The image copies datasets/.
     DATASETS_CSV = "datasets/datasets.csv"
   })

@@ -12,8 +12,10 @@ import (
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/api/internal/api"
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/api/internal/jobs"
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/api/internal/router"
+	"github.com/AntonMenchaca/distributed-systems-geojson-converter/api/internal/uploads"
 	"github.com/AntonMenchaca/distributed-systems-geojson-converter/jobstore"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -27,6 +29,8 @@ type config struct {
 	JobsTable     string
 	QueueLayout   string // QUEUE_LAYOUT knob
 	CommitMode    string // COMMIT_MODE knob
+	UploadMode    string // UPLOAD_MODE knob
+	PresignURL    string // S3_PRESIGN_ENDPOINT: the S3 address clients use for presigned PUTs, if not the API's
 	QueueURLs     map[string]string
 	EstimatesPath string
 	DatasetsCSV   string
@@ -46,6 +50,8 @@ func loadConfig(getenv func(string) string) (config, error) {
 		JobsTable:     getenv("JOBS_TABLE"),
 		QueueLayout:   or("QUEUE_LAYOUT", "single"),
 		CommitMode:    or("COMMIT_MODE", "blind"),
+		UploadMode:    or("UPLOAD_MODE", "proxy-buffer"),
+		PresignURL:    getenv("S3_PRESIGN_ENDPOINT"),
 		EstimatesPath: or("ESTIMATES_PATH", "config/estimates.json"),
 		DatasetsCSV:   or("DATASETS_CSV", "datasets/local/datasets.csv"),
 		Bucket:        getenv("BUCKET"),
@@ -62,6 +68,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	if _, err := router.Queue(cfg.QueueLayout, "small"); err != nil {
 		return config{}, err
+	}
+	if !uploads.Modes[cfg.UploadMode] {
+		return config{}, fmt.Errorf("UPLOAD_MODE=%q: want proxy-buffer, proxy-stream or presigned", cfg.UploadMode)
 	}
 	switch jobstore.CommitMode(cfg.CommitMode) {
 	case jobstore.CommitBlind, jobstore.CommitFenced:
@@ -102,8 +111,20 @@ func main() {
 		Outputs: jobs.S3OutputURLs{Presigner: s3.NewPresignClient(s3Client), Bucket: cfg.Bucket, Expires: time.Hour},
 		Logger:  logger,
 	})
-	logger.Info("starting api", "queue_layout", cfg.QueueLayout, "estimates_version", est.Version)
-	if err := api.SetupRouter(logger, handlers).Run(":" + cfg.Port); err != nil {
+	// Locally the API reaches S3 at localstack:4566 but a client on the laptop needs
+	// localhost:4566, so presigned URLs can be signed for a different endpoint.
+	presignS3 := s3Client
+	if cfg.PresignURL != "" {
+		presignS3 = s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+			o.UsePathStyle = cfg.S3PathStyle
+			o.BaseEndpoint = aws.String(cfg.PresignURL)
+		})
+	}
+	uploadHandlers := uploads.New(uploads.Config{
+		Mode: cfg.UploadMode, Bucket: cfg.Bucket, S3: s3Client, Presigner: s3.NewPresignClient(presignS3), Logger: logger,
+	})
+	logger.Info("starting api", "queue_layout", cfg.QueueLayout, "upload_mode", cfg.UploadMode, "estimates_version", est.Version)
+	if err := api.SetupRouter(logger, handlers, uploadHandlers).Run(":" + cfg.Port); err != nil {
 		log.Fatal(err)
 	}
 }

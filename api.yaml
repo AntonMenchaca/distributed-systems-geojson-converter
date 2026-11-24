@@ -37,7 +37,8 @@ paths:
         Reserves an upload ID. With `UPLOAD_MODE=presigned` the client PUTs the
         file to `put_url` (straight to S3). With the proxy modes, the client
         PUTs it to `/uploads/{id}` instead and `put_url` points there.
-        Not implemented yet.
+        The file is stored at `uploads/<upload_id>.geojson` in the run bucket.
+        The largest upload is 5 GiB (one S3 PUT).
       operationId: createUpload
       requestBody:
         required: true
@@ -65,7 +66,8 @@ paths:
       description: |
         `UPLOAD_MODE=proxy-buffer` reads the whole body into memory before
         writing it to S3; `proxy-stream` streams it. Returns 404 when
-        `UPLOAD_MODE=presigned`. Not implemented yet.
+        `UPLOAD_MODE=presigned`. `proxy-stream` holds one 8 MiB part in memory at a time,
+        whatever the file's size.
       operationId: putUpload
       parameters:
         - $ref: '#/components/parameters/UploadId'
@@ -87,6 +89,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/OverLimit'
 
   /jobs:
     post:
