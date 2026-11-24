@@ -1,0 +1,19 @@
+{
+  "version": "v0",
+  "passed": false,
+  "complete": true,
+  "unfinished": [],
+  "jobs": 1,
+  "checked": 1,
+  "status_counts": {
+    "SUCCEEDED": 1
+  },
+  "failures": [
+    {
+      "job_id": "5080f9fe-4ad7-48a1-bbd5-1306c713edd6",
+      "check": "status_regression",
+      "status": "SUCCEEDED"
+    }
+  ],
+  "run_id": "local-heartbeat-test"
+}
