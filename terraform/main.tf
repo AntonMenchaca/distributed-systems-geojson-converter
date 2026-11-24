@@ -152,10 +152,7 @@ module "api" {
     GIN_MODE     = "release"
     QUEUE_LAYOUT = var.queue_layout
     COMMIT_MODE  = var.commit_mode
-<<<<<<< HEAD
-=======
     # Full catalog (H.1), not datasets/local (Compose smoke only). The image copies datasets/.
->>>>>>> 83da6dc (refactor terraform to point at remote datasets)
     DATASETS_CSV = "datasets/datasets.csv"
   })
 

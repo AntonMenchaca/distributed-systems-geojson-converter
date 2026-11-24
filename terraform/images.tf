@@ -23,11 +23,7 @@ locals {
   }
 
   src_hash = { for name, globs in {
-<<<<<<< HEAD
-    api    = ["api/**", "jobstore/**", "config/**", "datasets/*.csv", "datasets/local/**"]
-=======
     api    = ["api/**", "jobstore/**", "config/**", "datasets/**"]
->>>>>>> 83da6dc (refactor terraform to point at remote datasets)
     worker = ["worker/cmd/**", "worker/internal/**", "worker/go.*", "worker/Dockerfile", "jobstore/**"]
     } : name => sha1(join("", [
       for f in sort(flatten([for g in globs : tolist(fileset(local.repo_root, g))])) : filesha1("${local.repo_root}/${f}")
