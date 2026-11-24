@@ -94,7 +94,7 @@ Gap from the prediction:
 
 ## Phase summary (2.4)
 
-Methodology: 
+Methodology: Profiling ran as `TASK_SHAPE=1x2-8-20gb` (1 × 2 vCPU, 8 GB, 20 GB), not the plan's 1 × 4 vCPU, 16 GB, 100 GB — AWS Learner Lab credentials blocked the larger shape. That was enough: across the successful cells, `cpu_s` tracked wall time (ogr2ogr stays near single-threaded), peak RSS stayed under 1.1 GB, and peak disk stayed under 7.4 GB, so the smaller shape did not bind. `p2-size-samuel-s11` failed at collection (`INCOMPLETE`); use `p2-size-retry-samuel-s11` for the size ladder. `p2-stream` refused at preflight (`INPUT_MODE=stream` not implemented).
 
 Observations: 
 
