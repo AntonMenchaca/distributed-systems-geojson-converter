@@ -112,10 +112,6 @@ variable "lease_mode" {
     condition     = contains(["fixed-30s", "fixed-12h", "heartbeat"], var.lease_mode)
     error_message = "lease_mode: fixed-30s, fixed-12h or heartbeat."
   }
-  validation {
-    condition     = var.lease_mode != "heartbeat"
-    error_message = "lease_mode: heartbeat is not implemented yet."
-  }
 }
 
 variable "commit_mode" {

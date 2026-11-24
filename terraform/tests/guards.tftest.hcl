@@ -67,13 +67,28 @@ run "non_learner_lab_caller_is_refused" {
 run "unbuilt_knob_value_is_refused" {
   command = plan
   variables {
+    commit_mode = "fenced"
+  }
+  override_data {
+    target = data.aws_caller_identity.current
+    values = { account_id = "123456789012", arn = "arn:aws:sts::123456789012:assumed-role/voclabs/user1234567=Student" }
+  }
+  expect_failures = [var.commit_mode]
+}
+
+run "heartbeat_lease_mode_plans" {
+  command = plan
+  variables {
     lease_mode = "heartbeat"
   }
   override_data {
     target = data.aws_caller_identity.current
     values = { account_id = "123456789012", arn = "arn:aws:sts::123456789012:assumed-role/voclabs/user1234567=Student" }
   }
-  expect_failures = [var.lease_mode]
+  assert {
+    condition     = output.knobs["LEASE_MODE"] == "heartbeat"
+    error_message = "LEASE_MODE=heartbeat should plan after 3.1-B"
+  }
 }
 
 run "unknown_prefix_is_refused" {

@@ -59,8 +59,12 @@ type Processor struct {
 	TaskID         string
 	Profile        string // GDAL_PROFILE
 	MeasureProfile bool   // PROFILE=1: upload one profile row for this job
-	Logger         *slog.Logger
-	Now            func() time.Time
+	// LeaseMode is LEASE_MODE. heartbeat starts a Lease for each job; fixed modes do not.
+	LeaseMode  string
+	LeaseS     int32         // LEASE_S when LeaseMode=heartbeat
+	LeaseEvery time.Duration // HEARTBEAT_EVERY_S
+	Logger     *slog.Logger
+	Now        func() time.Time
 }
 
 func (p *Processor) log() *slog.Logger {
@@ -92,48 +96,24 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	}
 	logger = logger.With("epoch", epoch)
 
-	// PROFILE=1 records one row for this attempt. The profile defer is registered
-	// before finishDisk, so the disk sample is taken first and the row is uploaded
-	// before the job directory is removed.
+	jobCtx, jobCancel := context.WithCancel(ctx)
+	defer jobCancel()
+
+	// PROFILE=1 records one row for this attempt. The upload defer is registered
+	// before finishDisk (so the disk sample is taken first) and before chaos
+	// validation, so a rejected payload still writes its row. Upload does not
+	// read the job directory, which is removed by a later defer.
 	var peakDisk int64
 	diskDone := false
 	var obs *profileObs
 	if p.MeasureProfile {
 		obs = &profileObs{dataset: outputTarget(qm).Dataset}
-	}
-
-	jobDir := filepath.Join(p.WorkDir, fmt.Sprintf("%s-%d", qm.JobID, epoch))
-	defer os.RemoveAll(jobDir)
-	if obs != nil {
 		defer func() {
 			if obs.write {
 				p.uploadProfile(ctx, qm, obs, peakDisk, diskDone, logger)
 			}
 		}()
 	}
-	if err := os.MkdirAll(jobDir, 0o755); err != nil {
-		p.fail(ctx, qm.JobID, epoch, "WORKDIR_FAILED", err, false, logger, obs)
-		return
-	}
-
-	// Peak disk is the whole job directory (input + output + ogr2ogr temp files + the zip),
-	// sampled from before the download until packaging ends. disk_mb in estimates.json
-	// predicts this number.
-	stopDisk := measure.SampleDisk(ctx, jobDir, time.Second)
-	finishDisk := func() {
-		if !diskDone {
-			peakDisk, diskDone = stopDisk(), true
-		}
-	}
-	defer finishDisk()
-
-	t := time.Now()
-	in := filepath.Join(jobDir, "in.geojson")
-	if err := p.Objects.Download(ctx, qm.InputKey, in); err != nil {
-		p.fail(ctx, qm.JobID, epoch, "DOWNLOAD_FAILED", err, false, logger, obs)
-		return
-	}
-	downloadMS := time.Since(t).Milliseconds()
 
 	guard, err := chaos.New(os.Getenv, qm.Chaos, epoch)
 	if err != nil {
@@ -143,17 +123,65 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	if guard.Enabled() && len(qm.Chaos) > 0 && string(qm.Chaos) != "null" {
 		logger.Info("chaos", "flags", string(qm.Chaos))
 	}
+
+	leaseErr := make(chan error, 1)
+	if p.LeaseMode == "heartbeat" {
+		queue := m.QueueURL
+		if queue == "" {
+			queue = p.QueueURL
+		}
+		lease := &Lease{
+			SQS:           p.SQS,
+			QueueURL:      queue,
+			ReceiptHandle: m.ReceiptHandle,
+			LeaseS:        p.LeaseS,
+			Every:         p.LeaseEvery,
+			Beat:          guard.Beat,
+			Heartbeat: func(c context.Context) error {
+				return p.Store.Heartbeat(c, qm.JobID, epoch, p.Now())
+			},
+			Kill: jobCancel,
+		}
+		go func() { leaseErr <- lease.Run(jobCtx) }()
+	}
+
+	jobDir := filepath.Join(p.WorkDir, fmt.Sprintf("%s-%d", qm.JobID, epoch))
+	defer os.RemoveAll(jobDir)
+	if err := os.MkdirAll(jobDir, 0o755); err != nil {
+		p.fail(ctx, qm.JobID, epoch, "WORKDIR_FAILED", err, false, logger, obs)
+		return
+	}
+
+	// Peak disk is the whole job directory (input + output + ogr2ogr temp files + the zip),
+	// sampled from before the download until packaging ends. disk_mb in estimates.json
+	// predicts this number.
+	stopDisk := measure.SampleDisk(jobCtx, jobDir, time.Second)
+	finishDisk := func() {
+		if !diskDone {
+			peakDisk, diskDone = stopDisk(), true
+		}
+	}
+	defer finishDisk()
+
+	t := time.Now()
+	in := filepath.Join(jobDir, "in.geojson")
+	if err := p.Objects.Download(jobCtx, qm.InputKey, in); err != nil {
+		p.fail(ctx, qm.JobID, epoch, "DOWNLOAD_FAILED", err, false, logger, obs)
+		return
+	}
+	downloadMS := time.Since(t).Milliseconds()
+
 	// pause_s freezes the claimed job, and heartbeats with it, before ogr2ogr starts.
 	// crash_at then kills at a fraction of convert progress on epoch 1 only; a later
 	// claim converts through. slow stretches the gaps between those ticks without
 	// stopping heartbeats.
-	if err := guard.Hold(ctx); err != nil {
+	if err := guard.Hold(jobCtx); err != nil {
 		logger.Error("chaos pause interrupted", "error", err.Error())
 		return
 	}
-	convertCtx := ctx
+	convertCtx := jobCtx
 	if guard.WantsProgress() {
-		convertCtx = gdal.WithProgress(ctx, guard.OnProgress)
+		convertCtx = gdal.WithProgress(jobCtx, guard.OnProgress)
 	}
 
 	outDir := filepath.Join(jobDir, "out")
@@ -165,6 +193,16 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	}
 	if err != nil {
 		finishDisk()
+		// A lost lease cancels convert; do not Fail/Commit — another delivery owns the job.
+		if jobCtx.Err() != nil {
+			select {
+			case e := <-leaseErr:
+				logger.Error("lease lost; leaving message for redelivery", "error", e.Error())
+			default:
+				logger.Error("job cancelled; leaving message for redelivery", "error", err.Error())
+			}
+			return
+		}
 		p.fail(ctx, qm.JobID, epoch, "CONVERT_FAILED", err, false, logger, obs)
 		return
 	}

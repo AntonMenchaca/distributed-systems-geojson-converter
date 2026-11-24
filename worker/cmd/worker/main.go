@@ -45,8 +45,11 @@ type config struct {
 	// samples that child's RSS. It is not GDAL_PROFILE, and it is not a knobs.md knob.
 	MeasureProfile bool
 	// VisibilityTimeoutS is set on each ReceiveMessage: 0 keeps the queue's 30 s default
-	// (fixed-30s); fixed-12h asks for SQS's 12 h maximum, allowed only at receive time.
+	// (fixed-30s); fixed-12h asks for SQS's 12 h maximum, allowed only at receive time;
+	// heartbeat asks for LEASE_S (60) and renews every HEARTBEAT_EVERY_S (20).
 	VisibilityTimeoutS int32
+	LeaseS             int32         // LEASE_S (heartbeat only)
+	LeaseEvery         time.Duration // HEARTBEAT_EVERY_S (heartbeat only)
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -120,7 +123,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 	case "fixed-12h":
 		cfg.VisibilityTimeoutS = 12 * 60 * 60
 	case "heartbeat":
-		return config{}, fmt.Errorf("LEASE_MODE=heartbeat: not implemented yet")
+		cfg.VisibilityTimeoutS = loop.HeartbeatLeaseS
+		cfg.LeaseS = loop.HeartbeatLeaseS
+		cfg.LeaseEvery = loop.HeartbeatEveryS * time.Second
 	default:
 		return config{}, fmt.Errorf("LEASE_MODE=%q: want fixed-30s, fixed-12h or heartbeat", cfg.LeaseMode)
 	}
@@ -214,6 +219,9 @@ func main() {
 		TaskID:         taskID,
 		Profile:        cfg.Profile,
 		MeasureProfile: cfg.MeasureProfile,
+		LeaseMode:      cfg.LeaseMode,
+		LeaseS:         cfg.LeaseS,
+		LeaseEvery:     cfg.LeaseEvery,
 		Logger:         logger,
 		Now:            time.Now,
 	}
