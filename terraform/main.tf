@@ -60,9 +60,9 @@ locals {
   # profiling (step 2.1) is one task big enough that a large file is not sharing
   # the machine. Off: these are the TASK_SHAPE variables, unchanged.
   worker_task_count        = var.profiling ? 1 : var.worker_count
-  worker_task_cpu          = var.profiling ? 4096 : var.worker_cpu
-  worker_task_memory       = var.profiling ? 16384 : var.worker_memory
-  worker_task_ephemeral_gb = var.profiling ? 100 : var.worker_ephemeral_gb
+  worker_task_cpu          = var.profiling ? 2048 : var.worker_cpu
+  worker_task_memory       = var.profiling ? 8192 : var.worker_memory
+  worker_task_ephemeral_gb = var.worker_ephemeral_gb
 }
 
 module "network" {
@@ -152,6 +152,7 @@ module "api" {
     GIN_MODE     = "release"
     QUEUE_LAYOUT = var.queue_layout
     COMMIT_MODE  = var.commit_mode
+    # Full catalog (H.1), not datasets/local (Compose smoke only). The image copies datasets/.
     DATASETS_CSV = "datasets/datasets.csv"
   })
 

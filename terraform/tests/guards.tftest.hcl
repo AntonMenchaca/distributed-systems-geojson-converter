@@ -46,12 +46,12 @@ run "profiling_service_is_one_large_task" {
   }
 
   assert {
-    condition     = module.worker["worker"].task_count == 1 && module.worker["worker"].cpu == 4096 && module.worker["worker"].memory == 16384 && module.worker["worker"].ephemeral_storage_gb == 100 && module.worker["worker"].profile == "1"
-    error_message = "profiling service is ${module.worker["worker"].task_count} tasks, ${module.worker["worker"].cpu} CPU units, ${module.worker["worker"].memory} MiB, ${module.worker["worker"].ephemeral_storage_gb} GiB, PROFILE=${module.worker["worker"].profile}; want 1 x 4096, 16384, 100, PROFILE=1"
+    condition     = module.worker["worker"].task_count == 1 && module.worker["worker"].cpu == 2048 && module.worker["worker"].memory == 8192 && module.worker["worker"].ephemeral_storage_gb == 20 && module.worker["worker"].profile == "1"
+    error_message = "profiling service is ${module.worker["worker"].task_count} tasks, ${module.worker["worker"].cpu} CPU units, ${module.worker["worker"].memory} MiB, ${module.worker["worker"].ephemeral_storage_gb} GiB, PROFILE=${module.worker["worker"].profile}; want 1 x 2048, 8192, 20, PROFILE=1"
   }
   assert {
-    condition     = output.knobs["TASK_SHAPE"] == "1x4-16-100gb"
-    error_message = "recorded TASK_SHAPE is ${output.knobs["TASK_SHAPE"]}, want 1x4-16-100gb"
+    condition     = output.knobs["TASK_SHAPE"] == "1x2-8-20gb"
+    error_message = "recorded TASK_SHAPE is ${output.knobs["TASK_SHAPE"]}, want 1x2-8-20gb"
   }
 }
 

@@ -1,4 +1,4 @@
-got # 005: Profile rows live in S3 until collection
+# 005: Profile rows live in S3 until collection
 
 Date: 2026-11-23 · Decided by: Samuel
 

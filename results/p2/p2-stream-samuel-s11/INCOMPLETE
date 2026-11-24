@@ -1,0 +1,3 @@
+2026-11-23T20:43:56.037Z refused at preflight: INPUT_MODE: tfvars stream, deployed download
+INPUT_MODE=stream is not implemented yet (terraform refuses to plan it; the worker still downloads to in.geojson). Both p2-stream cells (ca-1m-seq/gpkg, ca-all-seq/gpkg) therefore have no profile measurements.
+The stack is still deployed. Rerun under a new run name, or `terraform destroy` before the session ends.

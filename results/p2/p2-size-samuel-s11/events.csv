@@ -1,0 +1,5 @@
+timestamp,event,task_id
+2026-11-23T18:33:59.680Z,start,
+2026-11-23T18:33:59.700Z,replay_start,
+2026-11-23T18:34:05.873Z,replay_end,
+2026-11-23T18:35:42.307Z,interrupted,

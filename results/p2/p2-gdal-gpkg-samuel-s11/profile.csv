@@ -1,0 +1,7 @@
+run_id,job_id,dataset_id,output_format,gdal_profile,input_bytes,output_bytes,output_features,wall_ms,package_ms,cpu_s,peak_rss_mb,peak_disk_mb,ogrinfo_ms,error
+p2-gdal-gpkg-samuel-s11,0fcfbd6d-a107-44eb-a46e-38b8d965de8f,ca-100k,gpkg,gt1,31007222,27242496,100000,12951,0,12.894256,73,56,53.82,
+p2-gdal-gpkg-samuel-s11,5db0f42a-ef10-4741-b2f6-581caa268a08,ca,gpkg,gt1,3598943044,3040538624,11542912,1516686,0,1522.640784,1053,6332,67.502,
+p2-gdal-gpkg-samuel-s11,615649e0-6d95-4081-bfbb-b85655281ea6,ca-10k,gpkg,gt1,3114037,2732032,10000,1357,0,1.353587,66,6,52.829,
+p2-gdal-gpkg-samuel-s11,921964fd-20aa-4bbd-835d-af731ae27a00,ca-1k,gpkg,gt1,279299,348160,1000,186,0,0.185798,0,1,52.37,
+p2-gdal-gpkg-samuel-s11,92e6e353-eee3-48e3-9e7b-82c587e0dc30,ca-1m,gpkg,gt1,306608023,260919296,1000000,131047,0,131.44683,153,542,52.093,
+p2-gdal-gpkg-samuel-s11,ff4618bb-320f-4106-8531-556a03369dcc,ca-3m,gpkg,gt1,919900506,785543168,3000000,391884,0,393.15723,323,1627,53.346,

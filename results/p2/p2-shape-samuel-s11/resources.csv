@@ -1,0 +1,14 @@
+ts,task_id,service,cpu_pct,mem_mb
+2026-11-23T19:11:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/e125594bee534f63b1a27d8182ad1424,gc-samuel-worker,47.16,76.0
+2026-11-23T19:11:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/c39b583820c34e6eb36f284bdebe7773,gc-samuel-api,0.01,13.0
+2026-11-23T19:12:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/c39b583820c34e6eb36f284bdebe7773,gc-samuel-api,0.0,11.0
+2026-11-23T19:12:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/e125594bee534f63b1a27d8182ad1424,gc-samuel-worker,49.01,85.0
+2026-11-23T19:13:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/e125594bee534f63b1a27d8182ad1424,gc-samuel-worker,41.53,40.0
+2026-11-23T19:13:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/c39b583820c34e6eb36f284bdebe7773,gc-samuel-api,0.01,9.0
+2026-11-23T19:14:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/c39b583820c34e6eb36f284bdebe7773,gc-samuel-api,0.01,9.0
+2026-11-23T19:14:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/e125594bee534f63b1a27d8182ad1424,gc-samuel-worker,35.65,31.0
+2026-11-23T19:15:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/c39b583820c34e6eb36f284bdebe7773,gc-samuel-api,0.01,9.0
+2026-11-23T19:16:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/c39b583820c34e6eb36f284bdebe7773,gc-samuel-api,0.01,9.0
+2026-11-23T19:16:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/e125594bee534f63b1a27d8182ad1424,gc-samuel-worker,49.07,48.0
+2026-11-23T19:17:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/e125594bee534f63b1a27d8182ad1424,gc-samuel-worker,30.09,48.0
+2026-11-23T19:17:00.000Z,arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/c39b583820c34e6eb36f284bdebe7773,gc-samuel-api,0.01,9.0

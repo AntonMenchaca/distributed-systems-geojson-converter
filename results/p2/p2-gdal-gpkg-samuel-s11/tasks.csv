@@ -1,0 +1,4 @@
+task_id,service,last_status,started_at,stopped_at,stop_code,stopped_reason
+arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/c39b583820c34e6eb36f284bdebe7773,gc-samuel-api,RUNNING,2026-11-23T18:39:56.623Z,,,
+arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/3737244ec5634997ac18c8e4c0e8e6b5,gc-samuel-worker,RUNNING,2026-11-23T19:53:16.345Z,,,
+arn:aws:ecs:us-east-1:175602030931:task/gc-samuel-cluster/e125594bee534f63b1a27d8182ad1424,gc-samuel-worker,STOPPED,2026-11-23T18:24:31.625Z,2026-11-23T19:55:15.156Z,ServiceSchedulerInitiated,Scaling activity initiated by (deployment ecs-svc/9165714746487805824)
