@@ -41,6 +41,9 @@ type config struct {
 	CommitMode   string // COMMIT_MODE
 	Profile      string // GDAL_PROFILE
 	ShutdownMode string // SHUTDOWN_MODE
+	// MeasureProfile is PROFILE=1: the loop runs one job at a time and ConvertProfile
+	// samples that child's RSS. It is not GDAL_PROFILE, and it is not a knobs.md knob.
+	MeasureProfile bool
 	// VisibilityTimeoutS is set on each ReceiveMessage: 0 keeps the queue's 30 s default
 	// (fixed-30s); fixed-12h asks for SQS's 12 h maximum, allowed only at receive time.
 	VisibilityTimeoutS int32
@@ -99,6 +102,17 @@ func loadConfig(getenv func(string) string) (config, error) {
 		cfg.Concurrency = n
 	default:
 		return config{}, fmt.Errorf("WORKER_CONCURRENCY=%q: want fixed-<n> or mem-budget", conc)
+	}
+
+	// PROFILE=1 forces a single slot even when WORKER_CONCURRENCY is higher, so a
+	// profiled conversion does not share the task with another job.
+	switch profileMode := or("PROFILE", "0"); profileMode {
+	case "0":
+	case "1":
+		cfg.MeasureProfile = true
+		cfg.Concurrency = 1
+	default:
+		return config{}, fmt.Errorf("PROFILE=%q: want 0 or 1", profileMode)
 	}
 
 	switch cfg.LeaseMode {
@@ -186,24 +200,30 @@ func main() {
 		log.Fatalf("loading AWS config: %v", err)
 	}
 	sqsClient := sqs.NewFromConfig(awsCfg)
+	convert := gdal.Convert
+	if cfg.MeasureProfile {
+		convert = gdal.ConvertProfile
+	}
 	proc := &loop.Processor{
-		Store:    jobstore.NewDynamoStore(dynamodb.NewFromConfig(awsCfg), cfg.JobsTable, jobstore.CommitMode(cfg.CommitMode)),
-		SQS:      sqsClient,
-		QueueURL: cfg.QueueURL,
-		Objects:  loop.S3Objects{Client: s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = cfg.S3PathStyle }), Bucket: cfg.Bucket},
-		Convert:  gdal.Convert,
-		WorkDir:  cfg.WorkDir,
-		TaskID:   taskID,
-		Profile:  cfg.Profile,
-		Logger:   logger,
-		Now:      time.Now,
+		Store:          jobstore.NewDynamoStore(dynamodb.NewFromConfig(awsCfg), cfg.JobsTable, jobstore.CommitMode(cfg.CommitMode)),
+		SQS:            sqsClient,
+		QueueURL:       cfg.QueueURL,
+		Objects:        loop.S3Objects{Client: s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = cfg.S3PathStyle }), Bucket: cfg.Bucket},
+		Convert:        convert,
+		WorkDir:        cfg.WorkDir,
+		TaskID:         taskID,
+		Profile:        cfg.Profile,
+		MeasureProfile: cfg.MeasureProfile,
+		Logger:         logger,
+		Now:            time.Now,
 	}
 	policy, err := loop.NewPolicy(cfg.SchedPolicy, cfg.QueueURLs) // already validated by loadConfig
 	if err != nil {
 		log.Fatal(err)
 	}
 	logger.Info("starting worker", "concurrency", cfg.Concurrency, "lease_mode", cfg.LeaseMode,
-		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "shutdown_mode", cfg.ShutdownMode,
+		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "profile", cfg.MeasureProfile,
+		"shutdown_mode", cfg.ShutdownMode,
 		"queue_layout", cfg.QueueLayout, "sched_policy", cfg.SchedPolicy, "worker_pool", cfg.Pool,
 		"chaos_enabled", chaos.Enabled(os.Getenv), "task_id", taskID)
 	loop.New(loop.Config{

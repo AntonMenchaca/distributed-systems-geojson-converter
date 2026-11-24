@@ -300,6 +300,14 @@ variable "worker_ephemeral_gb" {
   }
 }
 
+# Not a knobs.md knob. Turn it on for a profiling run (step 2.1). The worker
+# service becomes 1 x (4 vCPU, 16 GB, 100 GB) and gets PROFILE=1.
+variable "profiling" {
+  description = "Profiling service: one worker task at 4 vCPU, 16 GB memory and 100 GB disk, with PROFILE=1. Off leaves the baseline task shape unchanged."
+  type        = bool
+  default     = false
+}
+
 variable "input_mode" {
   type    = string
   default = "download"

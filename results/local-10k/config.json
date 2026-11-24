@@ -1,0 +1,24 @@
+{
+  "run_id": "local-10k",
+  "phase": "local",
+  "owner": null,
+  "account_prefix": "local",
+  "git_sha": "1622f75600a4d7e7d0248360379c3fb3b893821e",
+  "gdal_version": "3.13.3",
+  "trace_file": "traces/local-10k.csv",
+  "seed": null,
+  "knobs": {
+    "COMMIT_MODE": "blind",
+    "GDAL_PROFILE": "defaults",
+    "LEASE_MODE": "fixed-30s",
+    "QUEUE_LAYOUT": "single",
+    "SHUTDOWN_MODE": "ignore",
+    "WORKER_CONCURRENCY": "fixed-4"
+  },
+  "task_defs": {
+    "api": "sha256:ba6fff23ba30cce6b9fe2ee32d1460b16fc3702a172995e7d844111476ed9f6f",
+    "worker": "sha256:5bedbabe8857bfa3e68c7a7947fa1c0440f670c3ceb3096ad4e7f3b57462e15e"
+  },
+  "started_at": "2026-11-23T14:59:32.772Z",
+  "estimates_version": "v0"
+}

@@ -26,6 +26,33 @@ run "learner_lab_session_plans" {
     condition     = output.knobs["TASK_SHAPE"] == "4x1-4-20gb" && output.knobs["LEASE_MODE"] == "fixed-30s"
     error_message = "baseline knobs changed: ${jsonencode(output.knobs)}"
   }
+  assert {
+    condition     = module.worker["worker"].task_count == 4 && module.worker["worker"].cpu == 1024 && module.worker["worker"].memory == 4096 && module.worker["worker"].ephemeral_storage_gb == 20 && module.worker["worker"].profile == "0"
+    error_message = "baseline worker is not 4 x (1 vCPU, 4 GB, 20 GB) with PROFILE off"
+  }
+}
+
+run "profiling_service_is_one_large_task" {
+  command = plan
+
+  variables {
+    prefix    = "gc-samuel"
+    profiling = true
+  }
+
+  override_data {
+    target = data.aws_caller_identity.current
+    values = { account_id = "123456789012", arn = "arn:aws:sts::123456789012:assumed-role/voclabs/user1234567=Student" }
+  }
+
+  assert {
+    condition     = module.worker["worker"].task_count == 1 && module.worker["worker"].cpu == 4096 && module.worker["worker"].memory == 16384 && module.worker["worker"].ephemeral_storage_gb == 100 && module.worker["worker"].profile == "1"
+    error_message = "profiling service is ${module.worker["worker"].task_count} tasks, ${module.worker["worker"].cpu} CPU units, ${module.worker["worker"].memory} MiB, ${module.worker["worker"].ephemeral_storage_gb} GiB, PROFILE=${module.worker["worker"].profile}; want 1 x 4096, 16384, 100, PROFILE=1"
+  }
+  assert {
+    condition     = output.knobs["TASK_SHAPE"] == "1x4-16-100gb"
+    error_message = "recorded TASK_SHAPE is ${output.knobs["TASK_SHAPE"]}, want 1x4-16-100gb"
+  }
 }
 
 run "non_learner_lab_caller_is_refused" {

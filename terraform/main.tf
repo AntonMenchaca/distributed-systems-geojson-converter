@@ -51,11 +51,18 @@ locals {
     SCALER             = var.scaler
     SCALER_COOLDOWN    = var.scaler_cooldown
     WORKER_IMAGE       = var.worker_image
-    TASK_SHAPE         = "${var.worker_count}x${var.worker_cpu / 1024}-${var.worker_memory / 1024}-${var.worker_ephemeral_gb}gb"
+    TASK_SHAPE         = "${local.worker_task_count}x${local.worker_task_cpu / 1024}-${local.worker_task_memory / 1024}-${local.worker_task_ephemeral_gb}gb"
     INPUT_MODE         = var.input_mode
     SPLIT_K            = tostring(var.split_k)
     SPECULATE          = var.speculate
   }
+
+  # profiling (step 2.1) is one task big enough that a large file is not sharing
+  # the machine. Off: these are the TASK_SHAPE variables, unchanged.
+  worker_task_count        = var.profiling ? 1 : var.worker_count
+  worker_task_cpu          = var.profiling ? 4096 : var.worker_cpu
+  worker_task_memory       = var.profiling ? 16384 : var.worker_memory
+  worker_task_ephemeral_gb = var.profiling ? 100 : var.worker_ephemeral_gb
 }
 
 module "network" {
@@ -174,10 +181,10 @@ module "worker" {
   role_arn             = data.aws_iam_role.lab_role.arn
   log_group_name       = module.worker_logs.log_group_name
   region               = var.aws_region
-  task_count           = each.value.count
-  cpu                  = var.worker_cpu
-  memory               = var.worker_memory
-  ephemeral_storage_gb = var.worker_ephemeral_gb
+  task_count           = var.profiling ? local.worker_task_count : each.value.count
+  cpu                  = local.worker_task_cpu
+  memory               = local.worker_task_memory
+  ephemeral_storage_gb = local.worker_task_ephemeral_gb
 
   environment = merge(local.wiring, {
     WORKER_CONCURRENCY = var.worker_concurrency
@@ -191,5 +198,5 @@ module "worker" {
     WORK_DIR           = "/tmp/jobs"
     # Not a knob. 0 leaves crash_at / pause_s / slow on a trace inert. T-fail sets 1.
     CHAOS_ENABLED = var.chaos_enabled
-  })
+  }, var.profiling ? { PROFILE = "1" } : {})
 }

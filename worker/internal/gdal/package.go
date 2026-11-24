@@ -10,6 +10,44 @@ import (
 	"strings"
 )
 
+// LargestShpComponent is the larger of the .shp and .dbf file sizes under a shapefile
+// directory. The Shapefile 2 GB limit (SHP_LIMIT_MODE=split-2gb) applies to those
+// unzipped components; Package's .shp.zip is smaller and is what output_bytes records.
+func LargestShpComponent(dir string) (int64, error) {
+	var max int64
+	for _, ext := range []string{".shp", ".dbf"} {
+		n, err := largestWithExt(dir, ext)
+		if err != nil {
+			return 0, err
+		}
+		if n > max {
+			max = n
+		}
+	}
+	return max, nil
+}
+
+func largestWithExt(dir, ext string) (int64, error) {
+	var max int64
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if !strings.EqualFold(filepath.Ext(p), ext) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.Size() > max {
+			max = info.Size()
+		}
+		return nil
+	})
+	return max, err
+}
+
 // Package turns Convert's output at path into the single file that is uploaded, and returns
 // its path. A GeoPackage is already one file. A shapefile directory becomes Name.shp.zip with
 // its files at the zip root; a FileGDB directory becomes Name.gdb.zip holding Name.gdb/. Both

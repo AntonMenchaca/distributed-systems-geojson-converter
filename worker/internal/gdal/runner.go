@@ -21,6 +21,15 @@ type Stats struct {
 	WallMS, CPUS          float64
 	PeakRSSMB, PeakDiskMB int64
 	FeatureCount          int64
+	// OgrinfoMS is the separate `ogrinfo -so -al` pass. It is not part of WallMS,
+	// which stays the ogr2ogr conversion the job record stores as convert_ms.
+	OgrinfoMS float64
+	// ProfilePeakRSSBytes is for profile.csv peak_rss_mb under ConvertProfile: the
+	// larger of the /proc RSS sample peak (measure.ProfileInterval) and the child's
+	// rusage peak. Short jobs can finish before the first /proc tick, so rusage
+	// keeps fit.py from seeing zeros. PeakRSSMB stays the rusage figure alone for
+	// the job record / attempts.csv.
+	ProfilePeakRSSBytes int64
 }
 
 // Target names one conversion's output: Name is the output's base name (Package's file is
@@ -53,6 +62,17 @@ const mb = 1 << 20
 
 // Convert runs ogr2ogr on in, writing t's output into outDir, and measures it.
 func Convert(ctx context.Context, in, outDir, format, profile string, t Target) (Stats, error) {
+	return convert(ctx, in, outDir, format, profile, t, false)
+}
+
+// ConvertProfile is Convert with PROFILE=1 measurement: while ogr2ogr runs, the
+// child's RSS is read from /proc every measure.ProfileInterval. Disk is still
+// sampled once a second, the same as Convert.
+func ConvertProfile(ctx context.Context, in, outDir, format, profile string, t Target) (Stats, error) {
+	return convert(ctx, in, outDir, format, profile, t, true)
+}
+
+func convert(ctx context.Context, in, outDir, format, profile string, t Target, measureProfile bool) (Stats, error) {
 	f, ok := formats[format]
 	if !ok {
 		return Stats{}, fmt.Errorf("gdal: unknown format %q", format)
@@ -86,21 +106,48 @@ func Convert(ctx context.Context, in, outDir, format, profile string, t Target) 
 
 	stopDisk := measure.SampleDisk(ctx, outDir, time.Second)
 	start := time.Now()
-	runErr := cmd.Run()
+	runErr := cmd.Start()
+	var stopRSS func() (int64, []int64)
+	if runErr == nil && measureProfile && cmd.Process != nil {
+		pid := cmd.Process.Pid
+		stopRSS = measure.SampleRSS(ctx, func() (int64, error) {
+			return measure.ReadProcRSS(pid)
+		}, measure.ProfileInterval)
+	}
+	if runErr == nil {
+		runErr = cmd.Wait()
+	}
 	wall := time.Since(start)
 	peakDisk := stopDisk()
 
 	var stats Stats
 	stats.WallMS = float64(wall.Microseconds()) / 1000
 	stats.PeakDiskMB = ceilMB(peakDisk)
+	var procRSS int64
+	if stopRSS != nil {
+		procRSS, _ = stopRSS()
+	}
 	if ru, ok := sysUsage(cmd); ok {
 		stats.CPUS = measure.CPUSeconds(ru)
-		stats.PeakRSSMB = ceilMB(measure.PeakRSSBytes(ru))
+		rusageRSS := measure.PeakRSSBytes(ru)
+		stats.PeakRSSMB = ceilMB(rusageRSS)
+		if measureProfile {
+			stats.ProfilePeakRSSBytes = procRSS
+			if rusageRSS > stats.ProfilePeakRSSBytes {
+				stats.ProfilePeakRSSBytes = rusageRSS
+			}
+		}
+	} else if measureProfile {
+		stats.ProfilePeakRSSBytes = procRSS
 	}
 	if runErr != nil {
 		return stats, fmt.Errorf("gdal: ogr2ogr %s: %w: %s", format, runErr, lastBytes(stderr.Bytes(), 2048))
 	}
+	// Timed apart from WallMS. This is the same ogrinfo -so -al pass that counts
+	// features; it does not run inside the ogr2ogr child.
+	infoAt := time.Now()
 	n, err := FeatureCount(ctx, out)
+	stats.OgrinfoMS = float64(time.Since(infoAt).Microseconds()) / 1000
 	if err != nil {
 		return stats, err
 	}

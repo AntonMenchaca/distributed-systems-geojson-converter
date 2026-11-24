@@ -129,3 +129,58 @@ def test_each_attempt_is_a_row():
     assert attempts[0]["ended_at"] == "2026-11-21T10:00:31.000Z" and attempts[0]["peak_rss_mb"] == ""
     assert attempts[1]["peak_rss_mb"] == "180.5"
     assert list(attempts[0]) == collect.ATTEMPT_COLUMNS
+
+
+def _profile_body(job_id, run_id="local-10k"):
+    row = {c: "" for c in collect.PROFILE_COLUMNS}
+    row["run_id"] = run_id
+    row["job_id"] = job_id
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=collect.PROFILE_COLUMNS, lineterminator="\n")
+    w.writeheader()
+    w.writerow(row)
+    return buf.getvalue().encode()
+
+
+class FakeS3:
+    def __init__(self, objects):
+        self.objects = objects
+
+    def get_paginator(self, name):
+        assert name == "list_objects_v2"
+        return self
+
+    def paginate(self, **kw):
+        prefix = kw["Prefix"]
+        contents = [{"Key": k} for k in sorted(self.objects) if k.startswith(prefix)]
+        yield {"Contents": contents} if contents else {}
+
+    def get_object(self, **kw):
+        return {"Body": io.BytesIO(self.objects[kw["Key"]])}
+
+
+def test_profiles_join_to_one_header_sorted_by_job(tmp_path):
+    s3 = FakeS3({
+        "profiles/local-10k/b.csv": _profile_body("b"),
+        "profiles/local-10k/a.csv": _profile_body("a"),
+        "profiles/other/a.csv": _profile_body("a", run_id="other"),
+    })
+    dest = tmp_path / "profile.csv"
+    assert collect.write_profiles(s3, "gc-local", "local-10k", dest) == 2
+    text = dest.read_text()
+    assert text.splitlines()[0] == ",".join(collect.PROFILE_COLUMNS)
+    rows = list(csv.DictReader(io.StringIO(text)))
+    assert [r["job_id"] for r in rows] == ["a", "b"]
+    assert all(r["run_id"] == "local-10k" for r in rows)
+
+
+def test_no_profile_objects_writes_no_file(tmp_path):
+    dest = tmp_path / "profile.csv"
+    assert collect.write_profiles(FakeS3({}), "gc-local", "local-10k", dest) == 0
+    assert not dest.exists()
+
+
+def test_bad_profile_header_is_refused(tmp_path):
+    s3 = FakeS3({"profiles/local-10k/a.csv": b"nope,columns\n1,2\n"})
+    with pytest.raises(ValueError):
+        collect.write_profiles(s3, "gc-local", "local-10k", tmp_path / "profile.csv")
