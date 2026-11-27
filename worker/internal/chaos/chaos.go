@@ -8,13 +8,19 @@
 //	          claims epoch 2 and converts through. It does not mean the SQS receive
 //	          count. The flag stays on the message. The killed attempt stays RUNNING
 //	          because a dead process cannot record a failure.
-//	pause_s   seconds the job freezes. Heartbeats are not sent during the freeze, so a
-//	          pause longer than the lease expires it.
-//	slow      factor the conversion is stretched by (2, or true, means twice as long).
-//	          Heartbeats keep being sent, which is what makes slow different from pause.
+//	pause_s   seconds the job freezes, on the first claim only (epoch == 1, as for
+//	          crash_at). Heartbeats are not sent during the freeze, so a pause longer
+//	          than the lease expires it and the job is redelivered. The flag stays on the
+//	          message, but the redelivered claim (epoch 2) does not pause: otherwise every
+//	          claim would stall past its lease, each one stale before it could commit, and
+//	          the job would never finish.
+//	slow      factor the conversion is stretched by (2, or true, means twice as long), on
+//	          every epoch. Heartbeats keep being sent, which is what makes slow different
+//	          from pause.
 //
-// The heartbeat lease is a later step. That loop must call Beat, and a nil return during
-// a pause means the beat was not sent. This package does not renew a lease.
+// The heartbeat lease (loop.Lease, LEASE_MODE=heartbeat) calls Beat for each renewal, and
+// a nil return during a pause means the beat was not sent. This package does not renew a
+// lease.
 package chaos
 
 import (
@@ -107,9 +113,11 @@ func (g *Guard) WantsProgress() bool {
 	return g != nil && g.enabled && (g.flags.CrashAt != nil || g.flags.Slow > 1)
 }
 
-// Hold freezes the job for pause_s. Heartbeats are suppressed until it returns.
+// Hold freezes the job for pause_s on the first claim only. Heartbeats are suppressed
+// until it returns. A later epoch returns at once, so the redelivery of a paused job can
+// finish and commit.
 func (g *Guard) Hold(ctx context.Context) error {
-	if g == nil || !g.enabled || g.flags.PauseS <= 0 {
+	if g == nil || !g.enabled || g.flags.PauseS <= 0 || g.epoch != 1 {
 		return nil
 	}
 	g.paused.Store(true)

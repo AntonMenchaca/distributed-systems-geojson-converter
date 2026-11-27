@@ -54,6 +54,7 @@ Each successful job writes exactly one output object, named so the file alone sa
 outputs/<run>/<job_id>/<run>_<dataset>_<first 8 characters of job_id>.gpkg | .shp.zip | .gdb.zip
 ```
 
+- With `COMMIT_MODE=fenced`, each attempt writes under its own folder, `outputs/<run>/<job_id>/attempt-<epoch>/<same file name>`, and `output_key` points at the committed attempt's object. A stale attempt deletes its own object when its commit is rejected, so only the committed one remains. `blind` keeps the shared key above.
 - The layer inside is the dataset name (`dc`), with characters FileGDB does not allow replaced by `_`.
 - GDAL opens `.shp.zip` and `.gdb.zip` without unzipping. Zipping is timed as `package_ms`, apart from `convert_ms`.
 - The object's S3 metadata repeats `run-id`, `job-id`, `dataset-id` and `output-format`.

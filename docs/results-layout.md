@@ -19,6 +19,7 @@ Every SUCCEEDED job has exactly one output object, named so the file alone says 
 outputs/<run>/<job_id>/<run>_<dataset>_<first 8 characters of job_id>.gpkg | .shp.zip | .gdb.zip
 ```
 
+- With `COMMIT_MODE=fenced` the object sits one level deeper, `outputs/<run>/<job_id>/attempt-<epoch>/<same file name>`, and a stale attempt deletes its own object when its commit is rejected. `blind` uses the shared key above.
 - `<dataset>` is the input file's name (`datasets/dc.geojson` → `dc`). The layer inside the file is the dataset too, with any character FileGDB does not allow replaced by `_` (`polys-10k` → `polys_10k`).
 - Shapefile and FileGDB outputs are zipped; GDAL opens `.shp.zip` and `.gdb.zip` without unzipping. Zipping is timed as `package_ms`, apart from `convert_ms`.
 - Each object's S3 user metadata repeats `run-id`, `job-id`, `dataset-id` and `output-format`.

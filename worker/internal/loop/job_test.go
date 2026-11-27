@@ -26,9 +26,10 @@ func (tr *trace) add(e string) { tr.events = append(tr.events, e) }
 
 type fakeStore struct {
 	jobstore.Store
-	tr       *trace
-	claimErr error
-	result   jobstore.Result
+	tr        *trace
+	claimErr  error
+	commitErr error
+	result    jobstore.Result
 }
 
 func (f *fakeStore) Claim(_ context.Context, id, task string, _ time.Time) (int64, error) {
@@ -39,7 +40,7 @@ func (f *fakeStore) Claim(_ context.Context, id, task string, _ time.Time) (int6
 func (f *fakeStore) Commit(_ context.Context, id string, epoch int64, r jobstore.Result) error {
 	f.tr.add("commit:" + id)
 	f.result = r
-	return nil
+	return f.commitErr
 }
 
 func (f *fakeStore) Fail(_ context.Context, id string, epoch int64, code string, permanent bool) error {
@@ -52,6 +53,7 @@ type fakeObjects struct {
 	meta        map[string]map[string]string // upload key -> metadata
 	bodies      map[string]string            // upload key -> file contents
 	downloadErr error
+	deleteErr   error
 }
 
 func (o fakeObjects) Download(_ context.Context, key, path string) error {
@@ -60,6 +62,11 @@ func (o fakeObjects) Download(_ context.Context, key, path string) error {
 		return o.downloadErr
 	}
 	return os.WriteFile(path, []byte(`{"type":"FeatureCollection","features":[]}`), 0o644)
+}
+
+func (o fakeObjects) Delete(_ context.Context, key string) error {
+	o.tr.add("rm:" + key)
+	return o.deleteErr
 }
 
 func (o fakeObjects) Upload(_ context.Context, key, path string, meta map[string]string) error {
@@ -369,6 +376,64 @@ func (o sizedObjects) Download(_ context.Context, _, path string) error {
 	return os.WriteFile(path, make([]byte, o.inBytes), 0o644)
 }
 func (o sizedObjects) Upload(context.Context, string, string, map[string]string) error { return nil }
+func (o sizedObjects) Delete(context.Context, string) error                            { return nil }
+
+// Fenced mode gives each attempt its own folder, so a stale attempt never shares a key
+// with the live one. Claim returns epoch 1 here.
+func TestFencedOutputKeyIsPerAttempt(t *testing.T) {
+	tr := &trace{}
+	store := &fakeStore{tr: tr}
+	p := newProcessor(t, tr, store, nil)
+	p.CommitMode = jobstore.CommitFenced
+	p.Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	want := "outputs/local-x/j1/attempt-1/local-x_dc_j1.gpkg"
+	if store.result.OutputKey != want || !strings.Contains(strings.Join(tr.events, ","), "upload:"+want+",commit:j1,delete:rh") {
+		t.Fatalf("output_key %q events %v, want %s uploaded, committed, then the message deleted", store.result.OutputKey, tr.events, want)
+	}
+	if strings.Contains(strings.Join(tr.events, ","), "rm:") {
+		t.Fatalf("events %v: a committed attempt must keep its object", tr.events)
+	}
+}
+
+// A fenced worker whose commit is rejected as stale removes its own object and leaves the
+// message: the newer attempt's object and message are the live ones.
+func TestStaleWorkerDeletesItsObject(t *testing.T) {
+	tr := &trace{}
+	store := &fakeStore{tr: tr, commitErr: jobstore.ErrStaleEpoch}
+	p := newProcessor(t, tr, store, nil)
+	p.CommitMode = jobstore.CommitFenced
+	p.Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	key := "outputs/local-x/j1/attempt-1/local-x_dc_j1.gpkg"
+	want := "claim:j1:task-1,download:datasets/dc.geojson,convert:gpkg:defaults:local-x_dc_j1:dc," +
+		"upload:" + key + ",commit:j1,rm:" + key
+	if got := strings.Join(tr.events, ","); got != want {
+		t.Fatalf("events\n got %s\nwant %s (no message delete, no Fail)", got, want)
+	}
+}
+
+// A failed delete of the stale object is logged only: the commit was already rejected.
+func TestStaleWorkerDeleteFailureIsHarmless(t *testing.T) {
+	tr := &trace{}
+	p := newProcessor(t, tr, &fakeStore{tr: tr, commitErr: jobstore.ErrStaleEpoch}, nil)
+	p.CommitMode = jobstore.CommitFenced
+	p.Objects = fakeObjects{tr: tr, deleteErr: errors.New("s3 down")}
+	p.Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	got := strings.Join(tr.events, ",")
+	if !strings.Contains(got, "rm:outputs/local-x/j1/attempt-1/") || strings.Contains(got, "delete:rh") || strings.Contains(got, "fail:") {
+		t.Fatalf("events %s: want the delete attempted, then no Fail and no message delete", got)
+	}
+}
+
+// Under blind the key is shared with the newer attempt, so a stale worker must never
+// delete it, whatever the store returns.
+func TestBlindNeverDeletesSharedOutput(t *testing.T) {
+	tr := &trace{}
+	p := newProcessor(t, tr, &fakeStore{tr: tr, commitErr: jobstore.ErrStaleEpoch}, nil)
+	p.Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	if got := strings.Join(tr.events, ","); strings.Contains(got, "rm:") {
+		t.Fatalf("events %s: blind mode must not delete the shared object", got)
+	}
+}
 
 // Peak disk is the job directory's peak size: input plus output, which is what disk_mb in
 // estimates.json must predict for WORKER_CONCURRENCY=mem-budget.

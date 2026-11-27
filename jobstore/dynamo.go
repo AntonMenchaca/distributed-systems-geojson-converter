@@ -17,8 +17,6 @@ import (
 // tsLayout keeps millisecond precision in a fixed width, so timestamps sort as strings.
 const tsLayout = "2006-01-02T15:04:05.000Z"
 
-var errFencedTODO = errors.New("fenced commit mode: not implemented yet")
-
 type dynamoStore struct {
 	client *dynamodb.Client
 	table  string
@@ -181,8 +179,11 @@ func (d *dynamoStore) alreadyDoneOrMissing(ctx context.Context, jobID string) er
 	if cur.Status == StatusSucceeded {
 		return ErrAlreadyDone
 	}
-	// Condition failed for another reason (rare race); treat as not claimable the same way.
-	return ErrAlreadyDone
+	// The condition failed but the job is not SUCCEEDED (a blind-mode Fail or Commit moved
+	// the status between the two calls). Not ErrAlreadyDone: the worker deletes the
+	// message on that, which would drop a job that has not succeeded. The message stays
+	// for redelivery instead.
+	return fmt.Errorf("jobstore: claim %s: condition failed while status is %s", jobID, cur.Status)
 }
 
 func (d *dynamoStore) Heartbeat(ctx context.Context, jobID string, epoch int64, at time.Time) error {
@@ -206,11 +207,9 @@ func attemptPath(epoch int64, field string) string {
 }
 
 // Commit in blind mode overwrites the job's result whatever the epoch: the deliberately
-// naive baseline. Fenced mode adds "epoch = :mine".
+// naive baseline. Fenced mode adds "epoch = :mine": only the newest claim can commit, and
+// any other attempt gets ErrStaleEpoch and must discard its output (step 3.2-B).
 func (d *dynamoStore) Commit(ctx context.Context, jobID string, epoch int64, r Result) error {
-	if d.mode == CommitFenced {
-		return errFencedTODO
-	}
 	if epoch < 1 {
 		return fmt.Errorf("jobstore: commit: epoch %d is not a claimed attempt", epoch)
 	}
@@ -232,19 +231,26 @@ func (d *dynamoStore) Commit(ctx context.Context, jobID string, epoch int64, r R
 	if r.OutputSHA256 != "" {
 		u.set("output_sha256", s(r.OutputSHA256))
 	}
-	_, err := d.run(ctx, jobID, u, "attribute_exists(job_id)", types.ReturnValueNone)
+	cond := "attribute_exists(job_id)"
+	if d.mode == CommitFenced {
+		u.val(":mine", n(epoch))
+		cond += " AND epoch = :mine"
+	}
+	_, err := d.run(ctx, jobID, u, cond, types.ReturnValueNone)
 	if isCondFailed(err) {
+		if d.mode == CommitFenced {
+			return d.staleOrMissing(ctx, jobID)
+		}
 		return ErrNotFound
 	}
 	return err
 }
 
 // Fail records a failed attempt. A permanent failure (bad input) ends the job as FAILED;
-// a transient one leaves the status for the next delivery to change.
+// a transient one leaves the status for the next delivery to change. Fenced mode also
+// requires epoch = :mine and a status that is not SUCCEEDED, so a stale attempt cannot
+// overwrite a newer attempt's result and a finished job never goes backwards.
 func (d *dynamoStore) Fail(ctx context.Context, jobID string, epoch int64, code string, permanent bool) error {
-	if d.mode == CommitFenced {
-		return errFencedTODO
-	}
 	if epoch < 1 {
 		return fmt.Errorf("jobstore: fail: epoch %d is not a claimed attempt", epoch)
 	}
@@ -257,8 +263,16 @@ func (d *dynamoStore) Fail(ctx context.Context, jobID string, epoch int64, code 
 	u.set(attemptPath(epoch, "ended_at"), ts(d.now())).
 		set(attemptPath(epoch, "outcome"), s(outcome)).
 		set(attemptPath(epoch, "error_code"), s(code))
-	_, err := d.run(ctx, jobID, u, "attribute_exists(job_id)", types.ReturnValueNone)
+	cond := "attribute_exists(job_id)"
+	if d.mode == CommitFenced {
+		u.name("#s", "status").val(":mine", n(epoch)).val(":done", s(StatusSucceeded))
+		cond += " AND epoch = :mine AND #s <> :done"
+	}
+	_, err := d.run(ctx, jobID, u, cond, types.ReturnValueNone)
 	if isCondFailed(err) {
+		if d.mode == CommitFenced {
+			return d.staleOrMissing(ctx, jobID)
+		}
 		return ErrNotFound
 	}
 	return err

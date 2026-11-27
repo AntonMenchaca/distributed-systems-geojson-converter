@@ -15,7 +15,8 @@ type CommitMode string
 const (
 	// CommitBlind writes results unconditionally: the deliberately naive baseline.
 	CommitBlind CommitMode = "blind"
-	// CommitFenced commits only if the attempt's epoch is still current. Not implemented yet.
+	// CommitFenced commits (and fails) only if the attempt's epoch is still current, so a
+	// stale attempt gets ErrStaleEpoch instead of overwriting the newest one.
 	CommitFenced CommitMode = "fenced"
 )
 
@@ -50,7 +51,7 @@ type Store interface {
 	Claim(ctx context.Context, jobID, taskID string, at time.Time) (epoch int64, err error) // RUNNING, epoch+1; ErrAlreadyDone if SUCCEEDED
 	Heartbeat(ctx context.Context, jobID string, epoch int64, at time.Time) error           // ErrStaleEpoch if epoch moved
 	Commit(ctx context.Context, jobID string, epoch int64, r Result) error                  // blind: unconditional; fenced: ErrStaleEpoch if epoch moved
-	Fail(ctx context.Context, jobID string, epoch int64, code string, permanent bool) error // FAILED if permanent
+	Fail(ctx context.Context, jobID string, epoch int64, code string, permanent bool) error // FAILED if permanent; fenced: ErrStaleEpoch if epoch moved or job SUCCEEDED
 	Reject(ctx context.Context, j Job, code string) error                                   // REJECTED at admission
 	Get(ctx context.Context, jobID string) (Job, error)
 }

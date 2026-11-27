@@ -185,3 +185,75 @@ func TestHeartbeatUpdatesHeartbeatAt(t *testing.T) {
 		t.Fatalf("Heartbeat with stale epoch: %v, want ErrStaleEpoch", err)
 	}
 }
+
+// claimTwice leaves j1 at epoch 2: attempt 1 is now stale (its lease expired and the job
+// was redelivered), attempt 2 is the live one.
+func claimTwice(t *testing.T, s Store) {
+	t.Helper()
+	ctx := context.Background()
+	if err := s.Create(ctx, sampleJob("j1")); err != nil {
+		t.Fatal(err)
+	}
+	for i, at := range []time.Duration{0, time.Second} {
+		if _, err := s.Claim(ctx, "j1", fmt.Sprintf("task-%d", i+1), t0.Add(at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestFencedCommitRejectsStaleEpoch(t *testing.T) {
+	s, ctx := newTestStore(t, CommitFenced), context.Background()
+	claimTwice(t, s)
+	err := s.Commit(ctx, "j1", 1, Result{OutputKey: "outputs/local-x/j1/attempt-1/stale.gpkg", CommittedAt: t0.Add(9 * time.Second)})
+	if !errors.Is(err, ErrStaleEpoch) {
+		t.Fatalf("fenced commit with stale epoch 1: %v, want ErrStaleEpoch", err)
+	}
+	j, err := s.Get(ctx, "j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.Status != StatusRunning || j.OutputKey != "" {
+		t.Fatalf("got status %s output %q, want the stale commit to leave RUNNING and no output_key", j.Status, j.OutputKey)
+	}
+	if o := j.Attempts[0].Outcome; o != "" {
+		t.Fatalf("stale attempt outcome = %q, want it untouched", o)
+	}
+}
+
+func TestFencedCommitAcceptsCurrentEpoch(t *testing.T) {
+	s, ctx := newTestStore(t, CommitFenced), context.Background()
+	claimTwice(t, s)
+	key := "outputs/local-x/j1/attempt-2/out.gpkg"
+	if err := s.Commit(ctx, "j1", 2, Result{OutputKey: key, FeatureCount: 1000, CommittedAt: t0.Add(9 * time.Second)}); err != nil {
+		t.Fatalf("fenced commit with current epoch 2: %v", err)
+	}
+	j, err := s.Get(ctx, "j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.Status != StatusSucceeded || j.OutputKey != key || j.Attempts[1].Outcome != OutcomeSucceeded {
+		t.Fatalf("got status %s output %q attempts %+v, want SUCCEEDED with attempt 2's output", j.Status, j.OutputKey, j.Attempts)
+	}
+}
+
+// A stale Fail after SUCCEEDED must not move the job off SUCCEEDED, whether it comes from
+// an older epoch or (defensively) the same one.
+func TestStatusNeverRegresses(t *testing.T) {
+	s, ctx := newTestStore(t, CommitFenced), context.Background()
+	claimTwice(t, s)
+	if err := s.Commit(ctx, "j1", 2, Result{OutputKey: "outputs/local-x/j1/attempt-2/out.gpkg", CommittedAt: t0.Add(9 * time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	for _, epoch := range []int64{1, 2} {
+		if err := s.Fail(ctx, "j1", epoch, "CONVERT_FAILED", true); !errors.Is(err, ErrStaleEpoch) {
+			t.Fatalf("Fail(epoch %d) after SUCCEEDED: %v, want ErrStaleEpoch", epoch, err)
+		}
+	}
+	j, err := s.Get(ctx, "j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.Status != StatusSucceeded || j.ErrorCode != "" {
+		t.Fatalf("got status %s error_code %q, want SUCCEEDED with no error recorded", j.Status, j.ErrorCode)
+	}
+}
