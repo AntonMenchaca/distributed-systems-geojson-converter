@@ -140,18 +140,10 @@ func (d *dynamoStore) MarkQueued(ctx context.Context, jobID, queue string, at ti
 	return err
 }
 
-// Claim starts a new attempt. The SUCCEEDED check is a separate read, so it races with a
-// concurrent commit: the naive baseline. Making it atomic means moving it into the ConditionExpression.
-// The epoch increment and the attempts append share one UpdateItem, so attempts[epoch-1]
-// is always this attempt.
+// Claim starts a new attempt. The SUCCEEDED fence is in the ConditionExpression so a
+// concurrent commit cannot lose to a late claim (step 3.1-B). The epoch increment and the
+// attempts append share one UpdateItem, so attempts[epoch-1] is always this attempt.
 func (d *dynamoStore) Claim(ctx context.Context, jobID, taskID string, at time.Time) (int64, error) {
-	cur, err := d.Get(ctx, jobID)
-	if err != nil {
-		return 0, err
-	}
-	if cur.Status == StatusSucceeded {
-		return 0, ErrAlreadyDone
-	}
 	att := &types.AttributeValueMemberL{Value: []types.AttributeValue{
 		&types.AttributeValueMemberM{Value: map[string]types.AttributeValue{"task_id": s(taskID), "started_at": ts(at)}},
 	}}
@@ -159,12 +151,13 @@ func (d *dynamoStore) Claim(ctx context.Context, jobID, taskID string, at time.T
 		set("#s", s(StatusRunning)).set("started_at", ts(at)).
 		val(":one", n(1)).val(":t", ts(at)).val(":att", att).
 		val(":empty", &types.AttributeValueMemberL{Value: []types.AttributeValue{}}).
+		val(":done", s(StatusSucceeded)).
 		expr("epoch = epoch + :one").
 		expr("first_started_at = if_not_exists(first_started_at, :t)").
 		expr("attempts = list_append(if_not_exists(attempts, :empty), :att)")
-	out, err := d.run(ctx, jobID, u, "attribute_exists(job_id)", types.ReturnValueUpdatedNew)
+	out, err := d.run(ctx, jobID, u, "attribute_exists(job_id) AND #s <> :done", types.ReturnValueUpdatedNew)
 	if isCondFailed(err) {
-		return 0, ErrNotFound
+		return 0, d.alreadyDoneOrMissing(ctx, jobID)
 	}
 	if err != nil {
 		return 0, err
@@ -178,6 +171,18 @@ func (d *dynamoStore) Claim(ctx context.Context, jobID, taskID string, at time.T
 		return 0, fmt.Errorf("jobstore: claim: stamp attempt epoch: %w", err)
 	}
 	return epoch, nil
+}
+
+func (d *dynamoStore) alreadyDoneOrMissing(ctx context.Context, jobID string) error {
+	cur, err := d.Get(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if cur.Status == StatusSucceeded {
+		return ErrAlreadyDone
+	}
+	// Condition failed for another reason (rare race); treat as not claimable the same way.
+	return ErrAlreadyDone
 }
 
 func (d *dynamoStore) Heartbeat(ctx context.Context, jobID string, epoch int64, at time.Time) error {

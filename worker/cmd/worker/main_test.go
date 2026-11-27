@@ -47,7 +47,7 @@ func TestLoadConfigParsesFixedConcurrency(t *testing.T) {
 
 func TestLoadConfigRejectsUnknownOrUnbuiltKnobs(t *testing.T) {
 	for k, v := range map[string]string{
-		"WORKER_CONCURRENCY": "fixed-0", "LEASE_MODE": "heartbeat", "COMMIT_MODE": "yolo",
+		"WORKER_CONCURRENCY": "fixed-0", "LEASE_MODE": "forever", "COMMIT_MODE": "yolo",
 		"GDAL_PROFILE": "tuned", "BUCKET": "",
 	} {
 		if _, err := loadConfig(env(with(k, v))); err == nil {
@@ -60,7 +60,7 @@ func TestLoadConfigRejectsUnknownOrUnbuiltKnobs(t *testing.T) {
 }
 
 func TestLeaseModeSetsReceiveVisibility(t *testing.T) {
-	for mode, want := range map[string]int32{"fixed-30s": 0, "fixed-12h": 43200} {
+	for mode, want := range map[string]int32{"fixed-30s": 0, "fixed-12h": 43200, "heartbeat": 60} {
 		cfg, err := loadConfig(env(with("LEASE_MODE", mode)))
 		if err != nil || cfg.VisibilityTimeoutS != want {
 			t.Errorf("LEASE_MODE=%s: VisibilityTimeoutS %d, err %v; want %d", mode, cfg.VisibilityTimeoutS, err, want)

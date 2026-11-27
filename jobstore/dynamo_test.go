@@ -158,3 +158,30 @@ func TestStatusTimestampsSet(t *testing.T) {
 		t.Errorf("enqueued_at = %v, want %v (millisecond precision kept)", j.EnqueuedAt, t0.Add(50*time.Millisecond))
 	}
 }
+
+// TestHeartbeatUpdatesHeartbeatAt: a successful Heartbeat stamps heartbeat_at for the
+// current epoch (LEASE_MODE=heartbeat renewals).
+func TestHeartbeatUpdatesHeartbeatAt(t *testing.T) {
+	s, ctx := newTestStore(t, CommitBlind), context.Background()
+	if err := s.Create(ctx, sampleJob("j1")); err != nil {
+		t.Fatal(err)
+	}
+	epoch, err := s.Claim(ctx, "j1", "task-1", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := t0.Add(20 * time.Second)
+	if err := s.Heartbeat(ctx, "j1", epoch, at); err != nil {
+		t.Fatal(err)
+	}
+	j, err := s.Get(ctx, "j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !j.HeartbeatAt.Equal(at) {
+		t.Fatalf("heartbeat_at = %v, want %v", j.HeartbeatAt, at)
+	}
+	if err := s.Heartbeat(ctx, "j1", epoch+1, at.Add(time.Second)); !errors.Is(err, ErrStaleEpoch) {
+		t.Fatalf("Heartbeat with stale epoch: %v, want ErrStaleEpoch", err)
+	}
+}
