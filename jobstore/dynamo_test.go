@@ -257,3 +257,51 @@ func TestStatusNeverRegresses(t *testing.T) {
 		t.Fatalf("got status %s error_code %q, want SUCCEEDED with no error recorded", j.Status, j.ErrorCode)
 	}
 }
+
+// A permanent failure ends the job. A redelivered message must then get ErrAlreadyFailed and
+// must not start another attempt: the epoch and the attempts list stay as they were.
+func TestClaimAfterFailedReturnsErrAlreadyFailed(t *testing.T) {
+	s, ctx := newTestStore(t, CommitFenced), context.Background()
+	if err := s.Create(ctx, sampleJob("j1")); err != nil {
+		t.Fatal(err)
+	}
+	epoch, err := s.Claim(ctx, "j1", "task-1", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Fail(ctx, "j1", epoch, "CONVERT_FAILED", true); err != nil {
+		t.Fatalf("permanent Fail: %v", err)
+	}
+	if _, err := s.Claim(ctx, "j1", "task-2", t0.Add(6*time.Second)); !errors.Is(err, ErrAlreadyFailed) {
+		t.Fatalf("claim after FAILED returned %v, want ErrAlreadyFailed", err)
+	}
+	j, err := s.Get(ctx, "j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.Status != StatusFailed || j.Epoch != 1 || len(j.Attempts) != 1 || j.ErrorCode != "CONVERT_FAILED" {
+		t.Fatalf("got status %s epoch %d attempts %d error %q, want FAILED at epoch 1 with one attempt", j.Status, j.Epoch, len(j.Attempts), j.ErrorCode)
+	}
+}
+
+// A transient failure leaves the status alone, so the redelivered message can claim again.
+func TestTransientFailLeavesJobClaimable(t *testing.T) {
+	s, ctx := newTestStore(t, CommitFenced), context.Background()
+	if err := s.Create(ctx, sampleJob("j1")); err != nil {
+		t.Fatal(err)
+	}
+	epoch, err := s.Claim(ctx, "j1", "task-1", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Fail(ctx, "j1", epoch, "CONVERT_FAILED", false); err != nil {
+		t.Fatalf("transient Fail: %v", err)
+	}
+	got, err := s.Claim(ctx, "j1", "task-2", t0.Add(6*time.Second))
+	if err != nil {
+		t.Fatalf("claim after a transient failure: %v", err)
+	}
+	if got != 2 {
+		t.Fatalf("claim returned epoch %d, want 2", got)
+	}
+}

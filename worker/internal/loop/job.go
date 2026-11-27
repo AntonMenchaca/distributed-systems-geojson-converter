@@ -92,7 +92,9 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	logger := p.log().With("job_id", qm.JobID, "run_id", qm.RunID, "format", qm.OutputFormat)
 
 	epoch, err := p.Store.Claim(ctx, qm.JobID, p.TaskID, p.Now())
-	if errors.Is(err, jobstore.ErrAlreadyDone) {
+	// SUCCEEDED and FAILED are both terminal: no attempt can change either, so the message
+	// has nothing left to do.
+	if errors.Is(err, jobstore.ErrAlreadyDone) || errors.Is(err, jobstore.ErrAlreadyFailed) {
 		p.deleteMessage(ctx, m, logger)
 		return
 	}
@@ -123,7 +125,9 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 
 	guard, err := chaos.New(os.Getenv, qm.Chaos, epoch)
 	if err != nil {
-		p.fail(ctx, qm.JobID, epoch, "CHAOS_INVALID", err, true, logger, obs)
+		if p.fail(ctx, qm.JobID, epoch, "CHAOS_INVALID", err, true, logger, obs) {
+			p.deleteMessage(ctx, m, logger)
+		}
 		return
 	}
 	if guard.Enabled() && len(qm.Chaos) > 0 && string(qm.Chaos) != "null" {
@@ -209,7 +213,12 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 			}
 			return
 		}
-		p.fail(ctx, qm.JobID, epoch, "CONVERT_FAILED", err, false, logger, obs)
+		// A permanent failure ends the job as FAILED and drops the message; a transient one
+		// leaves both for SQS to redeliver (and for the DLQ to catch if it keeps failing).
+		permanent := gdal.Permanent(err)
+		if p.fail(ctx, qm.JobID, epoch, "CONVERT_FAILED", err, permanent, logger, obs) {
+			p.deleteMessage(ctx, m, logger)
+		}
 		return
 	}
 	if obs != nil {
@@ -396,23 +405,27 @@ func profileValues(qm QueueMessage, gdalProfile string, obs *profileObs, peakDis
 	}
 }
 
-// fail records a failed attempt. permanent ends the job as FAILED (retrying will not
-// help). The message stays on the queue for redelivery either way; a DLQ is a later step.
-// obs, when PROFILE=1 is on, marks this attempt's profile row with code.
-func (p *Processor) fail(ctx context.Context, jobID string, epoch int64, code string, cause error, permanent bool, logger *slog.Logger, obs *profileObs) {
+// fail records a failed attempt. permanent ends the job as FAILED (retrying will not help).
+// It returns true only when the job is now FAILED, which is when the caller may delete the
+// message. A transient failure, a stale epoch or a store error returns false, and the message
+// stays on the queue for redelivery. obs, when PROFILE=1 is on, marks this attempt's profile
+// row with code.
+func (p *Processor) fail(ctx context.Context, jobID string, epoch int64, code string, cause error, permanent bool, logger *slog.Logger, obs *profileObs) bool {
 	if obs != nil {
 		obs.write = true
 		obs.errCode = code
 	}
-	logger.Error("job attempt failed", "code", code, "error", cause.Error())
+	logger.Error("job attempt failed", "code", code, "permanent", permanent, "error", cause.Error())
 	err := p.Store.Fail(ctx, jobID, epoch, code, permanent)
 	if errors.Is(err, jobstore.ErrStaleEpoch) {
 		logger.Warn("failure not recorded: epoch has moved on or the job already succeeded")
-		return
+		return false
 	}
 	if err != nil {
 		logger.Error("record failure failed", "error", err.Error())
+		return false
 	}
+	return permanent
 }
 
 // outputKey is where this attempt's single output object goes. Blind keeps the one shared

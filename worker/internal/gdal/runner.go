@@ -141,7 +141,7 @@ func convert(ctx context.Context, in, outDir, format, profile string, t Target, 
 		stats.ProfilePeakRSSBytes = procRSS
 	}
 	if runErr != nil {
-		return stats, fmt.Errorf("gdal: ogr2ogr %s: %w: %s", format, runErr, lastBytes(stderr.Bytes(), 2048))
+		return stats, &ConvertError{Format: format, Stderr: stderr.Bytes(), Err: runErr}
 	}
 	// Timed apart from WallMS. This is the same ogrinfo -so -al pass that counts
 	// features; it does not run inside the ogr2ogr child.
