@@ -29,7 +29,10 @@ type fakeStore struct {
 	tr        *trace
 	claimErr  error
 	commitErr error
+	failErr   error
 	result    jobstore.Result
+	// failPermanent is the permanent flag of the last Fail call.
+	failPermanent bool
 }
 
 func (f *fakeStore) Claim(_ context.Context, id, task string, _ time.Time) (int64, error) {
@@ -45,7 +48,8 @@ func (f *fakeStore) Commit(_ context.Context, id string, epoch int64, r jobstore
 
 func (f *fakeStore) Fail(_ context.Context, id string, epoch int64, code string, permanent bool) error {
 	f.tr.add("fail:" + id + ":" + code)
-	return nil
+	f.failPermanent = permanent
+	return f.failErr
 }
 
 type fakeObjects struct {
@@ -211,6 +215,70 @@ func TestProcessConvertFailureLeavesMessage(t *testing.T) {
 	got := strings.Join(tr.events, ",")
 	if !strings.Contains(got, "fail:j1:CONVERT_FAILED") || strings.Contains(got, "delete:") || strings.Contains(got, "commit:") {
 		t.Fatalf("events %s: want a non-permanent Fail, no commit and no delete (SQS redelivers)", got)
+	}
+}
+
+// geojsonParseErr is what Convert returns for the P1 truncated file (GDAL 3.13 message).
+func geojsonParseErr() error {
+	return &gdal.ConvertError{Format: "gpkg", Stderr: []byte("ERROR 4: Failed to read GeoJSON data\n"), Err: errors.New("exit status 1")}
+}
+
+// A permanent failure ends the job as FAILED, and only then is the message dropped: no
+// redelivery, so the DLQ never sees it.
+func TestPermanentConvertFailureFailsJobAndDeletes(t *testing.T) {
+	tr := &trace{}
+	store := &fakeStore{tr: tr}
+	newProcessor(t, tr, store, geojsonParseErr()).Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	want := "claim:j1:task-1,download:datasets/dc.geojson,convert:gpkg:defaults:local-x_dc_j1:dc," +
+		"fail:j1:CONVERT_FAILED,delete:rh"
+	if got := strings.Join(tr.events, ","); got != want {
+		t.Fatalf("events\n got %s\nwant %s", got, want)
+	}
+	if !store.failPermanent {
+		t.Fatal("Fail was not marked permanent")
+	}
+}
+
+// If this attempt is no longer the current one, its failure is not recorded, so the message
+// must stay: the newer attempt owns the job and will finish it.
+func TestPermanentFailureStaleEpochKeepsMessage(t *testing.T) {
+	tr := &trace{}
+	store := &fakeStore{tr: tr, failErr: jobstore.ErrStaleEpoch}
+	newProcessor(t, tr, store, geojsonParseErr()).Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	if got := strings.Join(tr.events, ","); strings.Contains(got, "delete:") {
+		t.Fatalf("events %s: a stale attempt must not delete the message", got)
+	}
+}
+
+// If the failure cannot be recorded at all, the job is not FAILED, so the message stays too.
+func TestPermanentFailureStoreErrorKeepsMessage(t *testing.T) {
+	tr := &trace{}
+	store := &fakeStore{tr: tr, failErr: errors.New("dynamodb unavailable")}
+	newProcessor(t, tr, store, geojsonParseErr()).Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	if got := strings.Join(tr.events, ","); strings.Contains(got, "delete:") {
+		t.Fatalf("events %s: an unrecorded failure must not delete the message", got)
+	}
+}
+
+// A redelivery of a job that already FAILED is dropped without converting again.
+func TestAlreadyFailedDeletesWithoutConverting(t *testing.T) {
+	tr := &trace{}
+	newProcessor(t, tr, &fakeStore{tr: tr, claimErr: jobstore.ErrAlreadyFailed}, nil).Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	if got := strings.Join(tr.events, ","); got != "claim:j1:task-1,delete:rh" {
+		t.Fatalf("events %s, want claim then delete", got)
+	}
+}
+
+// An ogr2ogr killed for memory has no GDAL message, so it is transient: the message stays and
+// SQS retries it (the DLQ catches it if it keeps failing).
+func TestOOMConvertFailureIsTransient(t *testing.T) {
+	tr := &trace{}
+	store := &fakeStore{tr: tr}
+	oom := &gdal.ConvertError{Format: "gpkg", Err: errors.New("signal: killed")}
+	newProcessor(t, tr, store, oom).Handle(context.Background(), Message{Body: body, ReceiptHandle: "rh"})
+	got := strings.Join(tr.events, ",")
+	if store.failPermanent || strings.Contains(got, "delete:") {
+		t.Fatalf("events %s, failPermanent %v: an OOM kill must stay transient", got, store.failPermanent)
 	}
 }
 

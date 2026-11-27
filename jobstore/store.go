@@ -39,16 +39,17 @@ const (
 )
 
 var (
-	ErrAlreadyDone = errors.New("jobstore: job already succeeded")
-	ErrStaleEpoch  = errors.New("jobstore: epoch has moved on")
-	ErrNotFound    = errors.New("jobstore: job not found")
-	ErrJobExists   = errors.New("jobstore: job_id already exists")
+	ErrAlreadyDone   = errors.New("jobstore: job already succeeded")
+	ErrAlreadyFailed = errors.New("jobstore: job already failed permanently")
+	ErrStaleEpoch    = errors.New("jobstore: epoch has moved on")
+	ErrNotFound      = errors.New("jobstore: job not found")
+	ErrJobExists     = errors.New("jobstore: job_id already exists")
 )
 
 type Store interface {
 	Create(ctx context.Context, j Job) error                                                // status SUBMITTED; ErrJobExists if job_id exists
 	MarkQueued(ctx context.Context, jobID, queue string, at time.Time) error                // status QUEUED, enqueued_at
-	Claim(ctx context.Context, jobID, taskID string, at time.Time) (epoch int64, err error) // RUNNING, epoch+1; ErrAlreadyDone if SUCCEEDED
+	Claim(ctx context.Context, jobID, taskID string, at time.Time) (epoch int64, err error) // RUNNING, epoch+1; ErrAlreadyDone if SUCCEEDED, ErrAlreadyFailed if FAILED
 	Heartbeat(ctx context.Context, jobID string, epoch int64, at time.Time) error           // ErrStaleEpoch if epoch moved
 	Commit(ctx context.Context, jobID string, epoch int64, r Result) error                  // blind: unconditional; fenced: ErrStaleEpoch if epoch moved
 	Fail(ctx context.Context, jobID string, epoch int64, code string, permanent bool) error // FAILED if permanent; fenced: ErrStaleEpoch if epoch moved or job SUCCEEDED

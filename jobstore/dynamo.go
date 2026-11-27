@@ -138,9 +138,10 @@ func (d *dynamoStore) MarkQueued(ctx context.Context, jobID, queue string, at ti
 	return err
 }
 
-// Claim starts a new attempt. The SUCCEEDED fence is in the ConditionExpression so a
-// concurrent commit cannot lose to a late claim (step 3.1-B). The epoch increment and the
-// attempts append share one UpdateItem, so attempts[epoch-1] is always this attempt.
+// Claim starts a new attempt. The terminal fences (SUCCEEDED and FAILED) are in the
+// ConditionExpression, so a concurrent commit or permanent failure cannot lose to a late
+// claim (steps 3.1-B and 3.3-B). The epoch increment and the attempts append share one
+// UpdateItem, so attempts[epoch-1] is always this attempt.
 func (d *dynamoStore) Claim(ctx context.Context, jobID, taskID string, at time.Time) (int64, error) {
 	att := &types.AttributeValueMemberL{Value: []types.AttributeValue{
 		&types.AttributeValueMemberM{Value: map[string]types.AttributeValue{"task_id": s(taskID), "started_at": ts(at)}},
@@ -149,11 +150,11 @@ func (d *dynamoStore) Claim(ctx context.Context, jobID, taskID string, at time.T
 		set("#s", s(StatusRunning)).set("started_at", ts(at)).
 		val(":one", n(1)).val(":t", ts(at)).val(":att", att).
 		val(":empty", &types.AttributeValueMemberL{Value: []types.AttributeValue{}}).
-		val(":done", s(StatusSucceeded)).
+		val(":done", s(StatusSucceeded)).val(":failed", s(StatusFailed)).
 		expr("epoch = epoch + :one").
 		expr("first_started_at = if_not_exists(first_started_at, :t)").
 		expr("attempts = list_append(if_not_exists(attempts, :empty), :att)")
-	out, err := d.run(ctx, jobID, u, "attribute_exists(job_id) AND #s <> :done", types.ReturnValueUpdatedNew)
+	out, err := d.run(ctx, jobID, u, "attribute_exists(job_id) AND #s <> :done AND #s <> :failed", types.ReturnValueUpdatedNew)
 	if isCondFailed(err) {
 		return 0, d.alreadyDoneOrMissing(ctx, jobID)
 	}
@@ -176,13 +177,16 @@ func (d *dynamoStore) alreadyDoneOrMissing(ctx context.Context, jobID string) er
 	if err != nil {
 		return err
 	}
-	if cur.Status == StatusSucceeded {
+	switch cur.Status {
+	case StatusSucceeded:
 		return ErrAlreadyDone
+	case StatusFailed:
+		return ErrAlreadyFailed
 	}
-	// The condition failed but the job is not SUCCEEDED (a blind-mode Fail or Commit moved
-	// the status between the two calls). Not ErrAlreadyDone: the worker deletes the
-	// message on that, which would drop a job that has not succeeded. The message stays
-	// for redelivery instead.
+	// The condition failed but the job is neither SUCCEEDED nor FAILED (a blind-mode Fail or
+	// Commit moved the status between the two calls). Not a terminal error: the worker
+	// deletes the message on those, which would drop a job that is still live. The message
+	// stays for redelivery instead.
 	return fmt.Errorf("jobstore: claim %s: condition failed while status is %s", jobID, cur.Status)
 }
 
