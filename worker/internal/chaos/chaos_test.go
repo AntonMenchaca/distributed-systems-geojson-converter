@@ -164,6 +164,34 @@ func TestPauseStopsHeartbeats(t *testing.T) {
 	}
 }
 
+// pause_s rides on the queue message, which SQS redelivers unchanged, like crash_at. Only
+// the first claim (epoch 1) freezes; the redelivery must not, or every claim would stall
+// past its lease and be stale before it could commit.
+func TestPauseOnlyHoldsFirstEpoch(t *testing.T) {
+	t.Setenv("CHAOS_ENABLED", "1")
+	for _, c := range []struct {
+		epoch  int64
+		paused bool
+	}{{1, true}, {2, false}, {3, false}} {
+		g, err := New(os.Getenv, json.RawMessage(`{"pause_s":90}`), c.epoch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		slept := false
+		g.sleep = func(context.Context, time.Duration) error { slept = true; return nil }
+		if err := g.Hold(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if slept != c.paused {
+			t.Errorf("epoch %d: held = %v, want %v", c.epoch, slept, c.paused)
+		}
+		beats := 0
+		if err := g.Beat(context.Background(), func(context.Context) error { beats++; return nil }); err != nil || beats != 1 {
+			t.Errorf("epoch %d: heartbeat after Hold: beats=%d err=%v, want 1", c.epoch, beats, err)
+		}
+	}
+}
+
 // slow stretches the gaps between convert ticks and does not suppress heartbeats.
 // true is the flag form of factor 2.
 func TestSlowStretchesConvertWithoutStoppingHeartbeats(t *testing.T) {
