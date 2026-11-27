@@ -41,6 +41,7 @@ type config struct {
 	CommitMode   string // COMMIT_MODE
 	Profile      string // GDAL_PROFILE
 	ShutdownMode string // SHUTDOWN_MODE
+	StopTimeoutS int    // STOP_TIMEOUT_S: ECS stopTimeout, SIGTERM to SIGKILL, in seconds
 	// MeasureProfile is PROFILE=1: the loop runs one job at a time and ConvertProfile
 	// samples that child's RSS. It is not GDAL_PROFILE, and it is not a knobs.md knob.
 	MeasureProfile bool
@@ -135,12 +136,16 @@ func loadConfig(getenv func(string) string) (config, error) {
 		return config{}, fmt.Errorf("COMMIT_MODE=%q: want blind or fenced", cfg.CommitMode)
 	}
 	switch cfg.ShutdownMode {
-	case "ignore":
-	case "drain":
-		return config{}, fmt.Errorf("SHUTDOWN_MODE=drain: not implemented yet")
+	case "ignore", "drain":
 	default:
 		return config{}, fmt.Errorf("SHUTDOWN_MODE=%q: want ignore or drain", cfg.ShutdownMode)
 	}
+	rawStop := or("STOP_TIMEOUT_S", "120")
+	stop, err := strconv.Atoi(rawStop)
+	if err != nil || stop < drainMarginS+1 || stop > 120 {
+		return config{}, fmt.Errorf("STOP_TIMEOUT_S=%q: want %d to 120 (the drain stops %d s early)", rawStop, drainMarginS+1, drainMarginS)
+	}
+	cfg.StopTimeoutS = stop
 	switch cfg.Profile {
 	case "defaults", "gt1":
 	case "tuned":
@@ -177,11 +182,21 @@ func workerQueues(layout, pool string) ([]string, error) {
 	}
 }
 
-// runContext is the worker's lifetime context, shared by the poll loop and every job.
-// SHUTDOWN_MODE=ignore (the baseline): SIGTERM is ignored, so the worker keeps polling and
-// its ogr2ogr children keep running until ECS sends SIGKILL after the stop timeout and the
-// task dies mid-job. Only an interactive Ctrl-C (os.Interrupt) stops it. drain is not implemented yet.
+// drainMarginS is the time a draining worker keeps back from STOP_TIMEOUT_S: the rest of the
+// stop timeout is for returning unfinished messages before ECS sends SIGKILL.
+const drainMarginS = 10
+
+// runContext is the context that stops the poll loop. Jobs are not given it directly (see
+// loop.Config.Drain). The signals that stop it depend on SHUTDOWN_MODE:
+//   - ignore (the baseline): SIGTERM is ignored, so the worker keeps polling and its ogr2ogr
+//     children keep running until ECS sends SIGKILL after the stop timeout, and the task dies
+//     mid-job. Only an interactive Ctrl-C (os.Interrupt) stops it.
+//   - drain: SIGTERM stops the poll loop; running jobs finish within the stop timeout, and
+//     the rest are released (loop.Run).
 func runContext(mode string) (context.Context, context.CancelFunc) {
+	if mode == "drain" {
+		return signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	}
 	signal.Ignore(syscall.SIGTERM)
 	return signal.NotifyContext(context.Background(), os.Interrupt)
 }
@@ -229,13 +244,24 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	drain := cfg.ShutdownMode == "drain"
+	var protector loop.Protector
+	if drain {
+		if os.Getenv("ECS_AGENT_URI") == "" {
+			logger.Warn("ECS_AGENT_URI unset: scale-in protection is off")
+		}
+		protector = loop.NewProtection(os.Getenv("ECS_AGENT_URI"), logger)
+	}
 	logger.Info("starting worker", "concurrency", cfg.Concurrency, "lease_mode", cfg.LeaseMode,
 		"commit_mode", cfg.CommitMode, "gdal_profile", cfg.Profile, "profile", cfg.MeasureProfile,
-		"shutdown_mode", cfg.ShutdownMode,
+		"shutdown_mode", cfg.ShutdownMode, "stop_timeout_s", cfg.StopTimeoutS,
 		"queue_layout", cfg.QueueLayout, "sched_policy", cfg.SchedPolicy, "worker_pool", cfg.Pool,
 		"chaos_enabled", chaos.Enabled(os.Getenv), "task_id", taskID)
 	loop.New(loop.Config{
 		SQS: sqsClient, Policy: policy, QueueURL: cfg.QueueURL, Concurrency: cfg.Concurrency, WaitSeconds: 20,
 		VisibilityTimeoutS: cfg.VisibilityTimeoutS, Handle: proc.Handle, Logger: logger,
+		Drain:       drain,
+		StopTimeout: time.Duration(cfg.StopTimeoutS-drainMarginS) * time.Second,
+		Protector:   protector,
 	}).Run(ctx)
 }

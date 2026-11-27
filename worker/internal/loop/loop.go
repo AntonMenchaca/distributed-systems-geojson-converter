@@ -39,12 +39,35 @@ type Config struct {
 	VisibilityTimeoutS int32
 	Handle             func(context.Context, Message)
 	Logger             *slog.Logger
+	// Drain is SHUTDOWN_MODE=drain. When ctx is cancelled (SIGTERM) the loop stops
+	// receiving and lets running jobs finish. After StopTimeout it cancels any job still
+	// running and returns its message to the queue (visibility 0). Under drain, Handle
+	// gets a context that the stop signal does not cancel.
+	Drain       bool
+	StopTimeout time.Duration
+	// Protector, when set, is acquired before each job and released after it (scale-in
+	// protection under drain). Its errors are logged; they do not stop the job.
+	Protector Protector
+}
+
+// Protector is held while a job runs. Acquire and Release are called once per job.
+type Protector interface {
+	Acquire() error
+	Release() error
 }
 
 type Loop struct {
 	cfg   Config
 	slots chan struct{} // one token per running job
 	wg    sync.WaitGroup
+
+	// jobCtx is the lifetime of jobs under drain. Only cancelJobs ends it, at the stop timeout.
+	jobCtx     context.Context
+	cancelJobs context.CancelFunc
+
+	mu       sync.Mutex
+	nextSeq  uint64
+	inFlight map[uint64]Message // messages whose job has not returned
 }
 
 func New(cfg Config) *Loop {
@@ -54,11 +77,14 @@ func New(cfg Config) *Loop {
 	if cfg.Policy == nil {
 		cfg.Policy = fcfs{cfg.QueueURL}
 	}
-	return &Loop{cfg: cfg, slots: make(chan struct{}, cfg.Concurrency)}
+	l := &Loop{cfg: cfg, slots: make(chan struct{}, cfg.Concurrency), inFlight: map[uint64]Message{}}
+	l.jobCtx, l.cancelJobs = context.WithCancel(context.Background())
+	return l
 }
 
-// Run polls until ctx is cancelled, then waits for running jobs. SHUTDOWN_MODE=ignore: on
-// SIGTERM nothing drains; ECS kills the task mid-job after its stop timeout. SHUTDOWN_MODE=drain is not implemented yet.
+// Run polls until ctx is cancelled, then finishes the running jobs. SHUTDOWN_MODE=ignore:
+// jobs share ctx, so cancelling it cancels them too, and the caller waits for them to return.
+// SHUTDOWN_MODE=drain: see Config.Drain.
 func (l *Loop) Run(ctx context.Context) {
 	for ctx.Err() == nil {
 		if err := l.receiveOnce(ctx); err != nil && ctx.Err() == nil {
@@ -66,7 +92,95 @@ func (l *Loop) Run(ctx context.Context) {
 			time.Sleep(time.Second)
 		}
 	}
-	l.wg.Wait()
+	if !l.cfg.Drain {
+		l.wg.Wait()
+		return
+	}
+	l.drain()
+}
+
+// drain waits up to StopTimeout for the running jobs. Those still running then are
+// cancelled, and their messages go back to the queue. A cancelled job does not commit
+// or delete (see Processor.Handle), so its message is released after it is cancelled,
+// never before.
+func (l *Loop) drain() {
+	done := make(chan struct{})
+	go func() { l.wg.Wait(); close(done) }()
+	timer := time.NewTimer(l.cfg.StopTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return
+	case <-timer.C:
+	}
+	l.cfg.Logger.Warn("stop timeout reached; cancelling running jobs")
+	l.cancelJobs()
+	for _, m := range l.snapshot() {
+		l.release(m)
+	}
+	<-done
+}
+
+// release returns a message to the queue at once: visibility 0.
+func (l *Loop) release(m Message) {
+	queue := m.QueueURL
+	if queue == "" {
+		queue = l.cfg.QueueURL
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := l.cfg.SQS.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
+		QueueUrl:          aws.String(queue),
+		ReceiptHandle:     aws.String(m.ReceiptHandle),
+		VisibilityTimeout: 0,
+	})
+	if err != nil {
+		// Expected if the job deleted its message just before the release.
+		l.cfg.Logger.Error("release failed", "message_id", m.ID, "error", err.Error())
+		return
+	}
+	l.cfg.Logger.Info("released message", "message_id", m.ID)
+}
+
+func (l *Loop) track(m Message) uint64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.nextSeq++
+	l.inFlight[l.nextSeq] = m
+	return l.nextSeq
+}
+
+func (l *Loop) untrack(seq uint64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.inFlight, seq)
+}
+
+func (l *Loop) snapshot() []Message {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]Message, 0, len(l.inFlight))
+	for _, m := range l.inFlight {
+		out = append(out, m)
+	}
+	return out
+}
+
+// runJob runs one job with its protection held, and clears its in-flight record when
+// Handle returns.
+func (l *Loop) runJob(ctx context.Context, seq uint64, m Message) {
+	defer func() { l.untrack(seq); <-l.slots; l.wg.Done() }()
+	if l.cfg.Protector != nil {
+		if err := l.cfg.Protector.Acquire(); err != nil {
+			l.cfg.Logger.Error("scale-in protection on failed", "error", err.Error())
+		}
+		defer func() {
+			if err := l.cfg.Protector.Release(); err != nil {
+				l.cfg.Logger.Error("scale-in protection off failed", "error", err.Error())
+			}
+		}()
+	}
+	l.cfg.Handle(ctx, m)
 }
 
 // sqsMaxBatch is the most messages one ReceiveMessage call can return.
@@ -118,10 +232,11 @@ func (l *Loop) receiveOnce(ctx context.Context) error {
 		l.slots <- struct{}{} // never blocks: only this goroutine acquires, and we asked for <= free
 		l.wg.Add(1)
 		msg := Message{ID: aws.ToString(m.MessageId), Body: aws.ToString(m.Body), ReceiptHandle: aws.ToString(m.ReceiptHandle), QueueURL: queue}
-		go func() {
-			defer func() { <-l.slots; l.wg.Done() }()
-			l.cfg.Handle(ctx, msg)
-		}()
+		jobCtx := ctx
+		if l.cfg.Drain {
+			jobCtx = l.jobCtx
+		}
+		go l.runJob(jobCtx, l.track(msg), msg)
 	}
 	return nil
 }

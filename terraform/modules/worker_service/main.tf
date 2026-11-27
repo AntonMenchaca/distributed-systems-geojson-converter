@@ -17,4 +17,5 @@ module "service" {
   memory               = tostring(var.memory)
   ephemeral_storage_gb = var.ephemeral_storage_gb
   environment          = var.environment
+  stop_timeout_s       = var.stop_timeout_s
 }

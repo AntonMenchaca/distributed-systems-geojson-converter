@@ -157,9 +157,15 @@ variable "shutdown_mode" {
     condition     = contains(["ignore", "drain"], var.shutdown_mode)
     error_message = "shutdown_mode: ignore or drain."
   }
+}
+
+variable "stop_timeout_s" {
+  description = "STOP_TIMEOUT_S knob: ECS stopTimeout for the worker container, from SIGTERM to SIGKILL. Fargate allows up to 120 s; a draining worker stops taking jobs 10 s before this."
+  type        = number
+  default     = 120
   validation {
-    condition     = var.shutdown_mode == "ignore"
-    error_message = "shutdown_mode: drain is not implemented yet."
+    condition     = var.stop_timeout_s >= 11 && var.stop_timeout_s <= 120
+    error_message = "stop_timeout_s: 11 to 120 (the worker drains for 10 s less)."
   }
 }
 

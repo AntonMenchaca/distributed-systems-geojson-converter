@@ -57,3 +57,8 @@ variable "environment" {
   description = "Worker env: wiring plus env knobs"
   type        = map(string)
 }
+
+variable "stop_timeout_s" {
+  description = "STOP_TIMEOUT_S knob: ECS stopTimeout for the worker container, in seconds"
+  type        = number
+}

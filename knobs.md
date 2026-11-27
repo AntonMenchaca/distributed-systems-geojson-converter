@@ -22,7 +22,8 @@ The baseline run (`p1-base`) sets every knob to its **Baseline** value; each lat
 | `COMMIT_MODE` | env | `commit_mode` | worker (via `jobstore`) | `blind`, `fenced` | `blind` | `fenced` |
 | `DLQ_MAX_RECEIVES` | terraform | `dlq_max_receives` | terraform | `0` (no DLQ), any integer ≥ 1 | `0` (no DLQ: poison retries forever) | `3`, then `5` once permanent errors are handled |
 | `WORKER_CONCURRENCY` | env | `worker_concurrency` | worker | `fixed-<n>` (n ≥ 1), `mem-budget` | `fixed-4` | `mem-budget` |
-| `SHUTDOWN_MODE` | env | `shutdown_mode` | worker | `ignore`, `drain` | `ignore` | `drain` (stop pulling, release leases, scale-in protection) |
+| `SHUTDOWN_MODE` | env | `shutdown_mode` | worker | `ignore`, `drain` | `ignore` | `drain` (stop pulling, let jobs finish within `STOP_TIMEOUT_S`, release the rest, scale-in protection) |
+| `STOP_TIMEOUT_S` | env | `stop_timeout_s` | worker, terraform (ECS `stopTimeout`) | `11`–`120` s (Fargate's maximum is 120) | `120` | — (only matters under `SHUTDOWN_MODE=drain`; the worker stops taking jobs 10 s before the timeout) |
 | `GDAL_PROFILE` | env | `gdal_profile` | worker | `defaults`, `gt1`, `tuned` | `defaults` | `tuned` (fitted per format from profiling runs) |
 | `SHP_LIMIT_MODE` | env | `shp_limit_mode` | worker, api | `none`, `split-2gb`, `reject` | `none` | `split-2gb` (parts under 2 GB); `reject` (at admission) |
 | `ADMISSION` | env | `admission` | api | `off`, `validate`, `backlog` | `off` | `validate` (format limits, max size); `backlog` (`429` when predicted wait passes a target) |

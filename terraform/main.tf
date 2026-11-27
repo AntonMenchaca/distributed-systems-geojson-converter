@@ -45,6 +45,7 @@ locals {
     DLQ_MAX_RECEIVES   = tostring(var.dlq_max_receives)
     WORKER_CONCURRENCY = var.worker_concurrency
     SHUTDOWN_MODE      = var.shutdown_mode
+    STOP_TIMEOUT_S     = tostring(var.stop_timeout_s)
     GDAL_PROFILE       = var.gdal_profile
     SHP_LIMIT_MODE     = var.shp_limit_mode
     ADMISSION          = var.admission
@@ -186,6 +187,7 @@ module "worker" {
   cpu                  = local.worker_task_cpu
   memory               = local.worker_task_memory
   ephemeral_storage_gb = local.worker_task_ephemeral_gb
+  stop_timeout_s       = var.stop_timeout_s
 
   environment = merge(local.wiring, {
     WORKER_CONCURRENCY = var.worker_concurrency
@@ -196,6 +198,7 @@ module "worker" {
     COMMIT_MODE        = var.commit_mode
     GDAL_PROFILE       = var.gdal_profile
     SHUTDOWN_MODE      = var.shutdown_mode
+    STOP_TIMEOUT_S     = tostring(var.stop_timeout_s)
     WORK_DIR           = "/tmp/jobs"
     # Not a knob. 0 leaves crash_at / pause_s / slow on a trace inert. T-fail sets 1.
     CHAOS_ENABLED = var.chaos_enabled

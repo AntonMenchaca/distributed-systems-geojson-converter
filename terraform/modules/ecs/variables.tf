@@ -96,3 +96,9 @@ variable "environment" {
   default     = {}
   description = "Environment variables for the container, such as PAYMENT_SLOTS"
 }
+
+variable "stop_timeout_s" {
+  type        = number
+  default     = null
+  description = "ECS stopTimeout in seconds, from SIGTERM to SIGKILL (Fargate: 2-120); null leaves the default (30 s)"
+}

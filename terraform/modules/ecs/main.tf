@@ -52,7 +52,10 @@ resource "aws_ecs_task_definition" "this" {
         retries     = 3
         startPeriod = 10
       }
-    } : key => check if var.health_check_path != null }
+    } : key => check if var.health_check_path != null },
+    # stopTimeout: how long a stopping task gets between SIGTERM and SIGKILL. The key is left
+    # out when there's no value, so other services' task definitions don't change.
+    { for key, value in { stopTimeout = var.stop_timeout_s } : key => value if var.stop_timeout_s != null }
   )])
 }
 
