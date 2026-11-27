@@ -1,0 +1,13 @@
+{
+  "version": "v0",
+  "passed": true,
+  "complete": true,
+  "unfinished": [],
+  "jobs": 290,
+  "checked": 290,
+  "status_counts": {
+    "SUCCEEDED": 290
+  },
+  "failures": [],
+  "run_id": "local-fenced-1"
+}
