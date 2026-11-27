@@ -29,7 +29,7 @@
     "package_ms": { "type": "integer", "minimum": 0 },
     "upload_ms": { "type": "integer", "minimum": 0 },
 
-    "output_key": { "type": "string", "description": "The single output object: outputs/{run_id}/{job_id}/{run_id}_{dataset}_{job_id[:8]}.gpkg, .shp.zip or .gdb.zip." },
+    "output_key": { "type": "string", "description": "The single output object: outputs/{run_id}/{job_id}/{run_id}_{dataset}_{job_id[:8]}.gpkg, .shp.zip or .gdb.zip. With COMMIT_MODE=fenced it sits under outputs/{run_id}/{job_id}/attempt-{epoch}/ (the committed attempt's epoch)." },
     "output_bytes": { "type": "integer", "minimum": 0 },
     "output_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "feature_count": { "type": "integer", "minimum": 0 },

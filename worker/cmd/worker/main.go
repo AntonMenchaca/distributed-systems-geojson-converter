@@ -219,6 +219,7 @@ func main() {
 		TaskID:         taskID,
 		Profile:        cfg.Profile,
 		MeasureProfile: cfg.MeasureProfile,
+		CommitMode:     jobstore.CommitMode(cfg.CommitMode),
 		LeaseMode:      cfg.LeaseMode,
 		LeaseS:         cfg.LeaseS,
 		LeaseEvery:     cfg.LeaseEvery,

@@ -29,6 +29,8 @@ type Objects interface {
 	Download(ctx context.Context, key, path string) error
 	// Upload stores path at key with meta as the object's user metadata.
 	Upload(ctx context.Context, key, path string, meta map[string]string) error
+	// Delete removes key. A stale fenced attempt uses it to discard its own output.
+	Delete(ctx context.Context, key string) error
 }
 
 type ConvertFunc func(ctx context.Context, in, outDir, format, profile string, t gdal.Target) (gdal.Stats, error)
@@ -59,6 +61,10 @@ type Processor struct {
 	TaskID         string
 	Profile        string // GDAL_PROFILE
 	MeasureProfile bool   // PROFILE=1: upload one profile row for this job
+	// CommitMode is COMMIT_MODE. fenced writes each attempt's output under its own
+	// attempt-{epoch}/ prefix and deletes it if the commit is rejected as stale; blind
+	// keeps one shared key per job.
+	CommitMode jobstore.CommitMode
 	// LeaseMode is LEASE_MODE. heartbeat starts a Lease for each job; fixed modes do not.
 	LeaseMode  string
 	LeaseS     int32         // LEASE_S when LeaseMode=heartbeat
@@ -243,7 +249,7 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 	}
 
 	t = time.Now()
-	key := "outputs/" + qm.RunID + "/" + qm.JobID + "/" + filepath.Base(file)
+	key := p.outputKey(qm, epoch, filepath.Base(file))
 	// epoch is this claim's. verify compares it with the SUCCEEDED attempt so a stale
 	// upload that overwrote the object is visible. S3 user-metadata values are strings.
 	meta := map[string]string{
@@ -272,6 +278,14 @@ func (p *Processor) Handle(ctx context.Context, m Message) {
 		PeakDiskMB:   float64(measure.CeilMiB(peakDisk)),
 		CommittedAt:  p.Now(),
 	})
+	if errors.Is(err, jobstore.ErrStaleEpoch) {
+		// A newer claim owns the job. Its message and its output are the live ones: drop
+		// only this attempt's object, and leave the message alone (this receipt handle is
+		// stale, and the newer attempt deletes the message when it commits).
+		logger.Warn("commit rejected: epoch has moved on; discarding this attempt's output", "key", key)
+		p.discardOutput(ctx, key, logger)
+		return
+	}
 	if err != nil {
 		logger.Error("commit failed", "error", err.Error())
 		return
@@ -391,8 +405,37 @@ func (p *Processor) fail(ctx context.Context, jobID string, epoch int64, code st
 		obs.errCode = code
 	}
 	logger.Error("job attempt failed", "code", code, "error", cause.Error())
-	if err := p.Store.Fail(ctx, jobID, epoch, code, permanent); err != nil {
+	err := p.Store.Fail(ctx, jobID, epoch, code, permanent)
+	if errors.Is(err, jobstore.ErrStaleEpoch) {
+		logger.Warn("failure not recorded: epoch has moved on or the job already succeeded")
+		return
+	}
+	if err != nil {
 		logger.Error("record failure failed", "error", err.Error())
+	}
+}
+
+// outputKey is where this attempt's single output object goes. Blind keeps the one shared
+// key, so a stale attempt can overwrite a newer one. Fenced gives each attempt its own
+// attempt-{epoch}/ folder: attempts can no longer collide, and a stale one can delete its
+// object without touching the live one.
+func (p *Processor) outputKey(qm QueueMessage, epoch int64, name string) string {
+	prefix := "outputs/" + qm.RunID + "/" + qm.JobID + "/"
+	if p.CommitMode == jobstore.CommitFenced {
+		prefix += "attempt-" + strconv.FormatInt(epoch, 10) + "/"
+	}
+	return prefix + name
+}
+
+// discardOutput deletes a stale attempt's own object. It only runs in fenced mode, where
+// the key is unique to the attempt; under blind the key is shared with the newer attempt.
+// A failed delete is logged and changes nothing: the commit was already rejected.
+func (p *Processor) discardOutput(ctx context.Context, key string, logger *slog.Logger) {
+	if p.CommitMode != jobstore.CommitFenced {
+		return
+	}
+	if err := p.Objects.Delete(ctx, key); err != nil {
+		logger.Error("delete stale output failed", "key", key, "error", err.Error())
 	}
 }
 

@@ -67,13 +67,29 @@ run "non_learner_lab_caller_is_refused" {
 run "unbuilt_knob_value_is_refused" {
   command = plan
   variables {
+    shutdown_mode = "drain"
+  }
+  override_data {
+    target = data.aws_caller_identity.current
+    values = { account_id = "123456789012", arn = "arn:aws:sts::123456789012:assumed-role/voclabs/user1234567=Student" }
+  }
+  expect_failures = [var.shutdown_mode]
+}
+
+run "fenced_commit_mode_plans" {
+  command = plan
+  variables {
+    lease_mode  = "heartbeat"
     commit_mode = "fenced"
   }
   override_data {
     target = data.aws_caller_identity.current
     values = { account_id = "123456789012", arn = "arn:aws:sts::123456789012:assumed-role/voclabs/user1234567=Student" }
   }
-  expect_failures = [var.commit_mode]
+  assert {
+    condition     = output.knobs["COMMIT_MODE"] == "fenced" && output.knobs["LEASE_MODE"] == "heartbeat"
+    error_message = "LEASE_MODE=heartbeat COMMIT_MODE=fenced should plan after 3.2-B: ${jsonencode(output.knobs)}"
+  }
 }
 
 run "heartbeat_lease_mode_plans" {

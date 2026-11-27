@@ -121,10 +121,6 @@ variable "commit_mode" {
     condition     = contains(["blind", "fenced"], var.commit_mode)
     error_message = "commit_mode: blind or fenced."
   }
-  validation {
-    condition     = var.commit_mode == "blind"
-    error_message = "commit_mode: fenced is not implemented yet."
-  }
 }
 
 variable "dlq_max_receives" {

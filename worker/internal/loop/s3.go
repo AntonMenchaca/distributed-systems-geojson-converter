@@ -32,6 +32,11 @@ func (o S3Objects) Download(ctx context.Context, key, path string) error {
 	return f.Close()
 }
 
+func (o S3Objects) Delete(ctx context.Context, key string) error {
+	_, err := o.Client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(o.Bucket), Key: aws.String(key)})
+	return err
+}
+
 func (o S3Objects) Upload(ctx context.Context, key, path string, meta map[string]string) error {
 	f, err := os.Open(path)
 	if err != nil {
